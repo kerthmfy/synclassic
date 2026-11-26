@@ -107,8 +107,10 @@ class Library:
     def __init__(self, path: pathlib.Path):
         self.path = path
         path.parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(path)
+        # The app reads while a background download writes, so wait for locks and use WAL.
+        self.db = sqlite3.connect(path, timeout=30)
         self.db.row_factory = sqlite3.Row
+        self.db.execute("PRAGMA journal_mode = WAL")
         self.db.execute("PRAGMA foreign_keys = ON")
         self.db.executescript(SCHEMA)
 

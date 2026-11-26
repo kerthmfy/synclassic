@@ -9,10 +9,9 @@ import sys
 from synclassic import __version__, playlist_writer
 from synclassic.config import SETTING_HELP, app_dir, load_settings, save_settings, set_setting
 from synclassic.library import Library, LibraryPlaylist
-from synclassic.sources import SourceError, read_source, specs_from_input
 from synclassic.sources import spotify_auth
 from synclassic.sources.spotify_api import SpotifyApiError, SpotifyClient
-from synclassic.update import DownloadReport, RefreshReport, apply_source, download_missing, refresh_playlist
+from synclassic.update import DownloadReport, RefreshReport, add_inputs, download_missing, refresh_playlist
 
 
 def say(text: str = "") -> None:
@@ -142,33 +141,7 @@ def cmd_spotify_playlists(args) -> int:
 
 
 def add_sources(library: Library, inputs: list[str], name: str | None) -> list[LibraryPlaylist]:
-    client = spotify_client()
-    added: list[LibraryPlaylist] = []
-    for text in inputs:
-        try:
-            specs = specs_from_input(text)
-        except SourceError as error:
-            say(f"Skipped '{text}': {error}")
-            continue
-        for spec in specs:
-            existing = library.playlist_by_spec(spec)
-            if existing:
-                say(f"Already added as '{existing.name}'.")
-                added.append(existing)
-                continue
-            try:
-                source = read_source(spec, client)
-            except SourceError as error:
-                say(f"Couldn't read {spec.describe()}: {error}")
-                continue
-            wanted = name if (name and len(inputs) == 1 and len(specs) == 1) else source.name
-            playlist = library.add_playlist(wanted, spec)
-            apply_source(library, playlist, source)
-            say(f"Added '{playlist.name}' ({len(source.tracks)} songs)")
-            if source.note:
-                say(f"  Note: {source.note}")
-            added.append(playlist)
-    return added
+    return add_inputs(library, inputs, name, spotify_client(), say)
 
 
 def cmd_add(args) -> int:
@@ -454,6 +427,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("key", nargs="?")
     p.add_argument("value", nargs="?")
     p.set_defaults(func=cmd_config)
+
+    p = sub.add_parser("gui", help="open the Synclassic app window")
+    p.set_defaults(func=lambda args: __import__("synclassic.gui.app", fromlist=["main"]).main())
 
     p = sub.add_parser("doctor", help="check that everything needed is installed")
     p.set_defaults(func=cmd_doctor)

@@ -12,7 +12,7 @@ from synclassic.config import Settings
 from synclassic.library import Library, LibraryPlaylist, LibraryTrack, now
 from synclassic.matcher import Candidate, Matcher, MatchResult
 from synclassic.models import SourcePlaylist
-from synclassic.sources import SourceError, read_source
+from synclassic.sources import SourceError, read_source, specs_from_input
 from synclassic.sources.spotify_api import SpotifyClient
 from synclassic.textnorm import safe_filename
 
@@ -62,6 +62,38 @@ def apply_source(library: Library, playlist: LibraryPlaylist, source: SourcePlay
         item = library.track(track_id)
         report.removed.append(item.track.display() if item else str(track_id))
     return report
+
+
+def add_inputs(
+    library: Library, inputs: list[str], name: str | None, client: SpotifyClient | None, say: Say
+) -> list[LibraryPlaylist]:
+    """Add playlists from links/files/"liked". Already-added sources are returned as they are."""
+    added: list[LibraryPlaylist] = []
+    for text in inputs:
+        try:
+            specs = specs_from_input(text)
+        except SourceError as error:
+            say(f"Skipped '{text}': {error}")
+            continue
+        for spec in specs:
+            existing = library.playlist_by_spec(spec)
+            if existing:
+                say(f"Already added as '{existing.name}'.")
+                added.append(existing)
+                continue
+            try:
+                source = read_source(spec, client)
+            except SourceError as error:
+                say(f"Couldn't read {spec.describe()}: {error}")
+                continue
+            wanted = name if (name and len(inputs) == 1 and len(specs) == 1) else source.name
+            playlist = library.add_playlist(wanted, spec)
+            apply_source(library, playlist, source)
+            say(f"Added '{playlist.name}' ({len(source.tracks)} songs)")
+            if source.note:
+                say(f"  Note: {source.note}")
+            added.append(playlist)
+    return added
 
 
 def needs_work(item: LibraryTrack, retry_failed: bool) -> bool:
@@ -183,7 +215,14 @@ def download_missing(
     matcher: Matcher | None = None,
     retry_failed: bool = False,
     only: list[LibraryPlaylist] | None = None,
+    progress: Callable[[int, int, LibraryTrack], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> DownloadReport:
+    """Match and download every song that needs it.
+
+    `progress(number, total, item)` is called before each song and once more with
+    number == total + 1 at the end; `should_stop()` is checked between songs.
+    """
     matcher = matcher or Matcher()
     report = DownloadReport()
     if only is not None:
@@ -206,6 +245,11 @@ def download_missing(
 
     failures_in_a_row = 0
     for number, item in enumerate(work, start=1):
+        if should_stop and should_stop():
+            report.stopped_early = "Stopped. Update again to continue where you left off."
+            break
+        if progress:
+            progress(number, len(work), item)
         say(f"[{number}/{len(work)}] {item.track.display()}")
         status = process_track(library, item, settings, matcher, say)
         if status == "downloaded":
@@ -224,5 +268,15 @@ def download_missing(
             )
             break
         if number < len(work) and status in ("downloaded", "review", "failed"):
-            time.sleep(settings.download_pause)
+            _pause(settings.download_pause, should_stop)
+    if progress and work:
+        progress(len(work) + 1, len(work), work[-1])
     return report
+
+
+def _pause(seconds: float, should_stop: Callable[[], bool] | None) -> None:
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if should_stop and should_stop():
+            return
+        time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))

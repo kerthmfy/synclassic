@@ -31,9 +31,29 @@ pip install -e .
 synclassic doctor
 ```
 
+Open the app:
+
+```bash
+synclassic-gui
+```
+
 `ffmpeg` converts and repackages audio (and its `ffplay` plays previews). `deno` is needed
 by the YouTube downloader. Next time, open Terminal, `cd synclassic`, and run
-`source .venv/bin/activate` before using `synclassic`.
+`source .venv/bin/activate` before using `synclassic` or `synclassic-gui`.
+
+## The app
+
+- **＋ Add playlists**: paste a Spotify link, tick playlists from your Spotify account
+  (including Liked Songs), or import an `.m3u8` / `.csv` file.
+- **⟳ Update all**: checks every playlist for changes and downloads what's new. **■ Stop**
+  pauses after the current song; updating again continues where it left off.
+- **Needs attention**: songs that weren't found or might be the wrong version.
+  Double-click a song to see the closest YouTube Music results, **play a preview**, search
+  with your own words or paste a link, then **Download this version**.
+- Right-click a song or playlist for more (search again, show in Finder, rename, remove).
+- **Settings**: music folder, M4A/MP3, YouTube sign-in browser, and the Spotify login.
+
+Everything below also works from Terminal with the `synclassic` command.
 
 ## Add playlists
 

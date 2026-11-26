@@ -67,7 +67,7 @@ def preview(video_id: str, settings: Settings, wait: Callable[[], object] = inpu
     url = f"https://music.youtube.com/watch?v={video_id}"
     ffplay = shutil.which("ffplay")
     if ffplay:
-        stream = _stream_url(video_id, settings)
+        stream = stream_url(video_id, settings)
         if stream:
             process = subprocess.Popen(
                 [ffplay, "-nodisp", "-autoexit", "-loglevel", "quiet", stream],
@@ -85,7 +85,7 @@ def preview(video_id: str, settings: Settings, wait: Callable[[], object] = inpu
     return f"opened {url} in your browser"
 
 
-def _stream_url(video_id: str, settings: Settings) -> str | None:
+def stream_url(video_id: str, settings: Settings) -> str | None:
     import yt_dlp
 
     options = {"format": "bestaudio/best", "quiet": True, "no_warnings": True, "noplaylist": True}
