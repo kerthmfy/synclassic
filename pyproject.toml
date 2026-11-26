@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "synclassic"
+version = "0.1.0"
+description = "Spotify playlists to a classic iPod: download, tag, and keep playlists in sync."
+readme = "README.md"
+license = { text = "GPL-3.0-or-later" }
+requires-python = ">=3.11"
+dependencies = [
+    "requests>=2.31",
+    "mutagen>=1.47",
+    "ytmusicapi>=1.8",
+    "yt-dlp[default]>=2025.11.12",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+synclassic = "synclassic.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

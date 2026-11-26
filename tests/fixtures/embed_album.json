@@ -1,0 +1,112 @@
+{
+ "type": "album",
+ "name": "Discovery",
+ "uri": "spotify:album:2noRn2Aes5aoNVsU6iWThc",
+ "id": "2noRn2Aes5aoNVsU6iWThc",
+ "title": "Discovery",
+ "subtitle": "Daft Punk",
+ "isPreRelease": false,
+ "releaseDate": null,
+ "duration": 0,
+ "isPlayable": true,
+ "playabilityReason": "PLAYABLE",
+ "isExplicit": false,
+ "hasVideo": false,
+ "relatedEntityUri": "spotify:album:2noRn2Aes5aoNVsU6iWThc",
+ "trackList": [
+  {
+   "uri": "spotify:track:0DiWol3AO6WpXZgp0goxAV",
+   "uid": "dfa1496435df51db7a50",
+   "title": "One More Time",
+   "subtitle": "Daft Punk",
+   "isExplicit": false,
+   "isNineteenPlus": false,
+   "contentRatings": {
+    "labels": []
+   },
+   "duration": 320357,
+   "isPlayable": true,
+   "playabilityReason": "PLAYABLE",
+   "entityType": "track"
+  },
+  {
+   "uri": "spotify:track:3H3cOQ6LBLSvmcaV7QkZEu",
+   "uid": "488787eb8ff1792e028e",
+   "title": "Aerodynamic",
+   "subtitle": "Daft Punk",
+   "isExplicit": false,
+   "isNineteenPlus": false,
+   "contentRatings": {
+    "labels": []
+   },
+   "duration": 212546,
+   "isPlayable": true,
+   "playabilityReason": "PLAYABLE",
+   "entityType": "track"
+  },
+  {
+   "uri": "spotify:track:2VEZx7NWsZ1D0eJ4uv5Fym",
+   "uid": "15f99cbe1978416bed21",
+   "title": "Digital Love",
+   "subtitle": "Daft Punk",
+   "isExplicit": false,
+   "isNineteenPlus": false,
+   "contentRatings": {
+    "labels": []
+   },
+   "duration": 301373,
+   "isPlayable": true,
+   "playabilityReason": "PLAYABLE",
+   "entityType": "track"
+  }
+ ],
+ "visualIdentity": {
+  "backgroundBase": {
+   "alpha": 255,
+   "blue": 64,
+   "green": 32,
+   "red": 48
+  },
+  "backgroundTintedBase": {
+   "alpha": 255,
+   "blue": 106,
+   "green": 71,
+   "red": 87
+  },
+  "textBase": {
+   "alpha": 255,
+   "blue": 255,
+   "green": 255,
+   "red": 255
+  },
+  "textBrightAccent": {
+   "alpha": 255,
+   "blue": 255,
+   "green": 255,
+   "red": 255
+  },
+  "textSubdued": {
+   "alpha": 255,
+   "blue": 239,
+   "green": 198,
+   "red": 217
+  },
+  "image": [
+   {
+    "url": "https://image-cdn-ak.spotifycdn.com/image/ab67616d00001e021e81bff9807a9e629fce5ade",
+    "maxHeight": 300,
+    "maxWidth": 300
+   },
+   {
+    "url": "https://image-cdn-ak.spotifycdn.com/image/ab67616d000048511e81bff9807a9e629fce5ade",
+    "maxHeight": 64,
+    "maxWidth": 64
+   },
+   {
+    "url": "https://image-cdn-ak.spotifycdn.com/image/ab67616d0000b2731e81bff9807a9e629fce5ade",
+    "maxHeight": 640,
+    "maxWidth": 640
+   }
+  ]
+ }
+}

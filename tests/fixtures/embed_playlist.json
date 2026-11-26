@@ -1,0 +1,122 @@
+{
+ "type": "playlist",
+ "name": "Today’s Top Hits",
+ "uri": "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M",
+ "id": "37i9dQZF1DXcBWIGoYBM5M",
+ "title": "Today’s Top Hits",
+ "subtitle": "Spotify",
+ "authors": null,
+ "coverArt": {
+  "sources": [
+   {
+    "height": null,
+    "width": null,
+    "url": "https://i.scdn.co/image/ab67706f00000002ffe80c69d2e795ea01e63447"
+   }
+  ]
+ },
+ "releaseDate": null,
+ "duration": 0,
+ "isPlayable": true,
+ "playabilityReason": "UNKNOWN",
+ "isExplicit": false,
+ "hasVideo": false,
+ "relatedEntityUri": "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M",
+ "trackList": [
+  {
+   "uri": "spotify:track:4HCOHRCSQelz2GPX8iTamO",
+   "uid": "486d6155384a53395a2f73",
+   "title": "Flower In A Hurricane (feat. Tame Impala, SZA, King Gizzard & the Lizard Wizard) [From GTAVI: Original Score]",
+   "subtitle": "Justice, Tame Impala, SZA, Grand Theft Auto VI, King Gizzard & The Lizard Wizard",
+   "isExplicit": false,
+   "isNineteenPlus": false,
+   "contentRatings": {
+    "labels": []
+   },
+   "duration": 224877,
+   "isPlayable": true,
+   "playabilityReason": "PLAYABLE",
+   "entityType": "track"
+  },
+  {
+   "uri": "spotify:track:2sFepQNyl1WjpROruP8bJ0",
+   "uid": "33345a6b58796e51557934",
+   "title": "Housewife",
+   "subtitle": "Tate McRae",
+   "isExplicit": false,
+   "isNineteenPlus": false,
+   "contentRatings": {
+    "labels": []
+   },
+   "duration": 208810,
+   "isPlayable": true,
+   "playabilityReason": "PLAYABLE",
+   "entityType": "track"
+  },
+  {
+   "uri": "spotify:track:3zOYmiNOuyDL0ClxJcEJ0T",
+   "uid": "654e44597543482f767755",
+   "title": "Stop The Wedding!",
+   "subtitle": "Ashe",
+   "isExplicit": false,
+   "isNineteenPlus": false,
+   "contentRatings": {
+    "labels": []
+   },
+   "duration": 198840,
+   "isPlayable": true,
+   "playabilityReason": "PLAYABLE",
+   "entityType": "track"
+  }
+ ],
+ "visualIdentity": {
+  "backgroundBase": {
+   "alpha": 255,
+   "blue": 0,
+   "green": 83,
+   "red": 95
+  },
+  "backgroundTintedBase": {
+   "alpha": 255,
+   "blue": 0,
+   "green": 50,
+   "red": 61
+  },
+  "textBase": {
+   "alpha": 255,
+   "blue": 255,
+   "green": 255,
+   "red": 255
+  },
+  "textBrightAccent": {
+   "alpha": 255,
+   "blue": 255,
+   "green": 255,
+   "red": 255
+  },
+  "textSubdued": {
+   "alpha": 255,
+   "blue": 129,
+   "green": 207,
+   "red": 217
+  },
+  "image": [
+   {
+    "url": "https://image-cdn-fa.spotifycdn.com/image/ab67706f00000001ffe80c69d2e795ea01e63447",
+    "maxHeight": 64,
+    "maxWidth": 64
+   },
+   {
+    "url": "https://image-cdn-fa.spotifycdn.com/image/ab67706f00000002ffe80c69d2e795ea01e63447",
+    "maxHeight": 300,
+    "maxWidth": 300
+   },
+   {
+    "url": "https://image-cdn-fa.spotifycdn.com/image/ab67706f00000003ffe80c69d2e795ea01e63447",
+    "maxHeight": 640,
+    "maxWidth": 640
+   }
+  ]
+ },
+ "format": "format-shows-shuffle"
+}
