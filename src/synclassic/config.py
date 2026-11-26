@@ -46,6 +46,8 @@ class Settings:
     download_pause: float = 2.0
     # Read public playlists over 100 songs in full by scrolling Spotify's web page.
     full_playlist_reader: bool = True
+    # "artist": Music/Artist/Album/Song.m4a   "playlist": <Playlist>/Artist - Song.m4a
+    folder_layout: str = "artist"
 
     @property
     def music_path(self) -> pathlib.Path:
@@ -60,6 +62,7 @@ SETTING_HELP = {
     "spotify_client_id": "Client ID of your Spotify developer app (set by 'synclassic login')",
     "download_pause": "Seconds to wait between downloads",
     "full_playlist_reader": "on/off: read public playlists over 100 songs from Spotify's web page",
+    "folder_layout": "artist (Artist/Album/Song) or playlist (one folder per playlist)",
 }
 
 
@@ -108,6 +111,10 @@ def set_setting(settings: Settings, key: str, value: str) -> None:
             raise ValueError("download_pause can't be negative")
         setattr(settings, key, number)
         return
+    elif key == "folder_layout":
+        value = value.lower()
+        if value not in ("artist", "playlist"):
+            raise ValueError("folder_layout must be artist or playlist")
     elif key == "full_playlist_reader":
         lowered = value.lower()
         if lowered not in ("on", "off", "true", "false", "yes", "no", "1", "0"):

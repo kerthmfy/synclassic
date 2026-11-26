@@ -11,7 +11,7 @@ from synclassic.config import SETTING_HELP, app_dir, load_settings, save_setting
 from synclassic.library import Library, LibraryPlaylist
 from synclassic.sources import spotify_auth
 from synclassic.sources.spotify_api import SpotifyApiError, SpotifyClient
-from synclassic.update import DownloadReport, RefreshReport, add_inputs, download_missing, refresh_playlist
+from synclassic.update import DownloadReport, RefreshReport, add_inputs, download_missing, finalize, refresh_playlist
 
 
 def say(text: str = "") -> None:
@@ -87,9 +87,10 @@ def print_download_report(report: DownloadReport) -> None:
 
 def finish(library: Library) -> None:
     settings = load_settings()
-    written = playlist_writer.write_all(library, settings.music_path)
-    if written:
-        say(f"Playlists saved in {playlist_writer.playlists_dir(settings.music_path)}")
+    finalize(library, settings)
+    if library.playlists():
+        where = settings.music_path if settings.folder_layout == "playlist" else playlist_writer.playlists_dir(settings.music_path)
+        say(f"Playlists saved in {where}")
 
 
 # --- commands ---------------------------------------------------------------------------------
@@ -323,10 +324,12 @@ def cmd_clean(args) -> int:
         say(f"  ...and {len(orphans) - 30} more")
     if not args.yes and input("Delete these files? [y/N] ").strip().lower() != "y":
         return 0
+    from synclassic.organize import remove_song_file
+
     for item in orphans:
-        if item.file_path and pathlib.Path(item.file_path).is_file():
-            pathlib.Path(item.file_path).unlink()
+        remove_song_file(library, item)
         library.delete_track(item.id)
+    finalize(library)
     say("Deleted.")
     return 0
 
@@ -340,6 +343,10 @@ def cmd_config(args) -> int:
             say(str(error))
             return 1
         save_settings(settings)
+        if args.key == "folder_layout":
+            library = open_library()
+            finalize(library, settings)
+            say(f"Folders arranged by {'playlist' if settings.folder_layout == 'playlist' else 'artist and album'}.")
     for key, help_text in SETTING_HELP.items():
         value = getattr(settings, key)
         if key == "music_dir" and not value:
@@ -349,6 +356,29 @@ def cmd_config(args) -> int:
         say(f"{key} = {value}")
         say(f"    {help_text}")
     return 0
+
+
+def cmd_ipod(args) -> int:
+    from synclassic.ipod.check import check, format_report
+    from synclassic.ipod.device import find_ipods, ipod_at
+
+    try:
+        ipods = [ipod_at(args.path)] if args.path else find_ipods()
+    except FileNotFoundError as error:
+        say(str(error))
+        return 1
+    if not ipods:
+        say("No iPod found. Plug it in and wait until it shows up in Finder, then try again.")
+        say("(If it's mounted somewhere unusual: synclassic ipod --path /Volumes/YourIPod)")
+        return 1
+    ok = True
+    for ipod in ipods:
+        report = check(ipod)
+        for line in format_report(report):
+            say(line)
+        ok = ok and report.safe_to_manage
+        say()
+    return 0 if ok else 2
 
 
 def cmd_doctor(args) -> int:
@@ -437,6 +467,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("key", nargs="?")
     p.add_argument("value", nargs="?")
     p.set_defaults(func=cmd_config)
+
+    p = sub.add_parser("ipod", help="check a connected iPod (read-only: nothing is changed)")
+    p.add_argument("--path", help="the iPod's folder, if it isn't found automatically")
+    p.set_defaults(func=cmd_ipod)
 
     p = sub.add_parser("gui", help="open the Synclassic app window")
     p.set_defaults(func=lambda args: __import__("synclassic.gui.app", fromlist=["main"]).main())

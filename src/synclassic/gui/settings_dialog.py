@@ -78,6 +78,16 @@ class SettingsDialog(QDialog):
         self.format.currentIndexChanged.connect(self._format_changed)
         self._format_changed()
 
+        self.layout_choice = QComboBox()
+        self.layout_choice.addItem("Artist / Album / Song", "artist")
+        self.layout_choice.addItem("One folder per playlist", "playlist")
+        self.layout_choice.setCurrentIndex(1 if self.settings.folder_layout == "playlist" else 0)
+        self.layout_choice.setToolTip(
+            "One folder per playlist: each playlist's folder has its songs and its .m3u8.\n"
+            "A song in several playlists is stored once (shown in each folder)."
+        )
+        form.addRow("Organize files", self.layout_choice)
+
         self.cookies = QComboBox()
         for label, value in BROWSERS:
             self.cookies.addItem(label, value)
@@ -195,6 +205,7 @@ class SettingsDialog(QDialog):
         self.settings.cookies_from_browser = self.cookies.currentData()
         self.settings.download_pause = float(self.pause.value())
         self.settings.full_playlist_reader = self.full_reader.isChecked()
+        self.settings.folder_layout = self.layout_choice.currentData()
         self.settings.spotify_client_id = self.client_id.text().strip() or self.settings.spotify_client_id
         save_settings(self.settings)
         self.accept()

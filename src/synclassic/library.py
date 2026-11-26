@@ -49,6 +49,13 @@ CREATE TABLE IF NOT EXISTS playlist_tracks (
     PRIMARY KEY (playlist_id, position)
 );
 CREATE INDEX IF NOT EXISTS playlist_tracks_track ON playlist_tracks(track_id);
+-- Playlist-folder layout: where each song appears inside each playlist's folder.
+CREATE TABLE IF NOT EXISTS placements (
+    track_id INTEGER NOT NULL,
+    playlist_id INTEGER NOT NULL,
+    path TEXT NOT NULL,
+    PRIMARY KEY (track_id, playlist_id)
+);
 """
 
 
@@ -259,6 +266,34 @@ class Library:
     def delete_track(self, track_id: int) -> None:
         with self.db:
             self.db.execute("DELETE FROM tracks WHERE id = ?", (track_id,))
+
+    # --- playlist-folder entries --------------------------------------------------------------
+
+    def placements(self, track_id: int | None = None) -> list[sqlite3.Row]:
+        if track_id is None:
+            return self.db.execute("SELECT * FROM placements ORDER BY playlist_id, track_id").fetchall()
+        return self.db.execute("SELECT * FROM placements WHERE track_id = ?", (track_id,)).fetchall()
+
+    def placement(self, track_id: int, playlist_id: int) -> str | None:
+        row = self.db.execute(
+            "SELECT path FROM placements WHERE track_id = ? AND playlist_id = ?", (track_id, playlist_id)
+        ).fetchone()
+        return row["path"] if row else None
+
+    def set_placement(self, track_id: int, playlist_id: int, path: str) -> None:
+        with self.db:
+            self.db.execute(
+                "INSERT OR REPLACE INTO placements (track_id, playlist_id, path) VALUES (?, ?, ?)",
+                (track_id, playlist_id, path),
+            )
+
+    def delete_placement(self, track_id: int, playlist_id: int) -> None:
+        with self.db:
+            self.db.execute("DELETE FROM placements WHERE track_id = ? AND playlist_id = ?", (track_id, playlist_id))
+
+    def delete_placements(self, track_id: int) -> None:
+        with self.db:
+            self.db.execute("DELETE FROM placements WHERE track_id = ?", (track_id,))
 
     def counts(self, playlist: LibraryPlaylist) -> dict[str, int]:
         rows = self.db.execute(

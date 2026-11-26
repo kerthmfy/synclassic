@@ -134,13 +134,43 @@ run `synclassic pick <number>`.
 
 ## Where files go
 
+Pick a layout in Settings (or `synclassic config folder_layout playlist`):
+
+**Artist / Album / Song** (default)
+
 ```
 ~/Music/Synclassic/
-  Music/<Album artist>/<Album>/<Track>.m4a    each song stored once, even if in many playlists
-  Playlists/<Playlist name>.m3u8              in the same order as Spotify
+  Music/<Album artist>/<Album>/<Track>.m4a
+  Playlists/<Playlist name>.m3u8
 ```
 
-Change it with `synclassic config music_dir /path/to/folder`.
+**One folder per playlist**
+
+```
+~/Music/Synclassic/
+  <Playlist name>/<Artist> - <Title>.m4a
+  <Playlist name>/<Playlist name>.m3u8      in the same order as Spotify
+  Playlists/<Playlist name>.m3u8
+```
+
+A song that's in several playlists appears in each playlist's folder but is stored once (a
+"hard link": one file, listed in several folders), so it doesn't use extra space. Switching
+layouts moves your existing files; renaming or removing a playlist updates its folder.
+
+Change the main folder with `synclassic config music_dir /path/to/folder`.
+
+## Your iPod
+
+Synclassic is becoming a full manager for the iPod 5th/5.5th generation (Video) with Apple's
+firmware. For now it can **check** your iPod without changing anything:
+
+```bash
+synclassic ipod
+```
+
+(or **Check iPod** in the app). It shows the model, firmware, songs and playlists, and checks
+that Synclassic can rebuild your iPod's music database **byte-for-byte**, which is the safety
+test that has to pass before Synclassic is allowed to write to it.
 
 ## Settings
 
@@ -156,6 +186,7 @@ synclassic config
 | `cookies_from_browser` | off | e.g. `safari`: YouTube Music Premium members get 256 kbps AAC |
 | `download_pause` | `2` | seconds between downloads |
 | `full_playlist_reader` | `on` | read public playlists over 100 songs from Spotify's web page |
+| `folder_layout` | `artist` | `artist` (Artist/Album/Song) or `playlist` (one folder per playlist) |
 
 Album art: Spotify's 640 × 640 cover is used whenever the song came from Spotify (Spotify
 pages often show a 64 px thumbnail; Synclassic always asks for the full-size one), otherwise

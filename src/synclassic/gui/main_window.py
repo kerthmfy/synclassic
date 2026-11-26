@@ -10,6 +10,7 @@ from PySide6.QtCore import QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QColor, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
@@ -42,7 +43,7 @@ from synclassic.gui.workers import Task, run_in_background
 from synclassic.library import Library, LibraryPlaylist, LibraryTrack
 from synclassic.sources import spotify_auth
 from synclassic.sources.spotify_api import SpotifyClient
-from synclassic.update import add_inputs, download_missing, refresh_playlist
+from synclassic.update import add_inputs, download_missing, finalize, refresh_playlist
 
 ATTENTION = "__attention__"
 ATTENTION_STATUSES = ("review", "unmatched", "failed")
@@ -113,6 +114,9 @@ class MainWindow(QMainWindow):
         self.stop_action = QAction("■  Stop", self)
         self.stop_action.setEnabled(False)
         self.stop_action.triggered.connect(self.stop_job)
+        self.ipod_action = QAction("Check iPod", self)
+        self.ipod_action.setToolTip("Read your iPod and check that Synclassic can manage it (changes nothing)")
+        self.ipod_action.triggered.connect(self.check_ipod)
         self.folder_action = QAction("Show music folder", self)
         self.folder_action.triggered.connect(lambda: reveal_in_finder(load_settings().music_path))
         self.settings_action = QAction("Settings", self)
@@ -123,6 +127,7 @@ class MainWindow(QMainWindow):
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         bar.addWidget(spacer)
+        bar.addAction(self.ipod_action)
         bar.addAction(self.folder_action)
         bar.addAction(self.settings_action)
 
@@ -382,7 +387,7 @@ class MainWindow(QMainWindow):
             name, ok = QInputDialog.getText(self, "Rename playlist", "New name:", text=playlist.name)
             if ok and name.strip():
                 self.library.rename_playlist(playlist, name.strip())
-                playlist_writer.write_all(self.library, load_settings().music_path)
+                finalize(self.library)
                 self.refresh()
         elif chosen == reveal:
             folder = playlist_writer.playlists_dir(load_settings().music_path)
@@ -396,7 +401,7 @@ class MainWindow(QMainWindow):
             )
             if answer == QMessageBox.StandardButton.Yes:
                 self.library.remove_playlist(playlist)
-                playlist_writer.write_all(self.library, load_settings().music_path)
+                finalize(self.library)
                 self.current_key = None
                 self.refresh()
 
@@ -410,12 +415,53 @@ class MainWindow(QMainWindow):
         if len(ids) != 1:
             return
         if open_picker(self, self.library_path, ids[0]):
-            playlist_writer.write_all(self.library, load_settings().music_path)
+            finalize(self.library)
             self.say("Saved your pick.")
         self.refresh()
 
+    def check_ipod(self) -> None:
+        from synclassic.ipod.check import check, format_report
+        from synclassic.ipod.device import find_ipods
+
+        def work(task):
+            ipods = find_ipods()
+            if not ipods:
+                return None
+            report = check(ipods[0])
+            return [(format_report(report), report.safe_to_manage)]
+
+        def show(result):
+            self.ipod_action.setEnabled(True)
+            self.status_label.setText("Ready")
+            if not result:
+                QMessageBox.information(self, "No iPod found", "Plug in your iPod and wait until it appears in Finder, then try again.")
+                return
+            lines, safe = result[0]
+            box = QMessageBox(self)
+            box.setWindowTitle("iPod check")
+            box.setIcon(QMessageBox.Icon.Information if safe else QMessageBox.Icon.Warning)
+            box.setText("Your iPod looks good. Nothing was changed." if safe else "Synclassic found a problem. Nothing was changed.")
+            box.setDetailedText("\n".join(lines))
+            box.setInformativeText("\n".join(l for l in lines[:6] + lines[-2:]))
+            box.exec()
+
+        self.ipod_action.setEnabled(False)
+        self.status_label.setText("Reading your iPod…")
+        run_in_background(self, work, show, lambda error: (self.ipod_action.setEnabled(True), self._job_failed(error)))
+
     def open_settings(self) -> None:
+        before = load_settings().folder_layout
         SettingsDialog(self).exec()
+        if load_settings().folder_layout != before:
+            if self.job is not None:
+                self.say("The new folder layout will be applied after the current update.")
+                return
+            self.status_label.setText("Arranging folders…")
+            QApplication.processEvents()
+            finalize(self.library)
+            self.say(f"Folders arranged by {'playlist' if load_settings().folder_layout == 'playlist' else 'artist and album'}.")
+            self.status_label.setText("Ready")
+            self.refresh()
 
     def add_playlists(self) -> None:
         if self.job is not None:
@@ -435,7 +481,7 @@ class MainWindow(QMainWindow):
                 task.changed.emit()
                 if added and download:
                     _download(library, task, added, retry_failed=False)
-                playlist_writer.write_all(library, load_settings().music_path)
+                finalize(library)
                 return [p.id for p in added]
             finally:
                 library.close()
@@ -480,7 +526,7 @@ class MainWindow(QMainWindow):
                                 task.say(f"    − {title}")
                         task.changed.emit()
                 result = _download(library, task, playlists, retry_failed)
-                playlist_writer.write_all(library, load_settings().music_path)
+                finalize(library)
                 return result
             finally:
                 library.close()

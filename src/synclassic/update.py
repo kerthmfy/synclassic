@@ -196,7 +196,14 @@ def save_candidate(
     assert cand is not None
     notes = "chosen by you" if manual else "; ".join(result.notes)
     _enrich(item, cand)
-    destination = target_path(settings.music_path, item)
+    from synclassic import organize
+
+    playlist_destination = organize.new_download_path(library, item, settings)
+    destination = playlist_destination or target_path(settings.music_path, item)
+    if playlist_destination is not None and any(
+        destination.with_suffix(ext).exists() for ext in (".m4a", ".mp3")
+    ) and not (item.file_path and pathlib.Path(item.file_path).with_suffix("") == destination):
+        destination = destination.with_name(f"{destination.name} [{item.id}]")
     try:
         download = downloader.download(cand.video_id, destination, settings)
     except downloader.DownloadError as error:
@@ -213,9 +220,15 @@ def save_candidate(
     except Exception as error:  # a tagging problem shouldn't lose the download
         say(f"    warning: couldn't write tags: {error}")
 
-    # Replace an older copy in another format/location.
+    # Replace an older copy in another format/location, and its playlist-folder entries
+    # (they'd still show the old recording).
+    organize.forget_placements(library, item.id, keep=download.path)
     if item.file_path and pathlib.Path(item.file_path) != download.path and pathlib.Path(item.file_path).is_file():
         pathlib.Path(item.file_path).unlink()
+    if playlist_destination is not None:
+        first = organize.first_playlist(library, item.id)
+        if first:
+            library.set_placement(item.id, first.id, str(download.path))
 
     status = "review" if (result.status == "review" and not manual) else "downloaded"
     library.update_track(
@@ -300,3 +313,13 @@ def _pause(seconds: float, should_stop: Callable[[], bool] | None) -> None:
         if should_stop and should_stop():
             return
         time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
+
+
+def finalize(library: Library, settings: Settings | None = None) -> None:
+    """After any change: arrange folders for the chosen layout and rewrite the playlist files."""
+    from synclassic import organize, playlist_writer
+    from synclassic.config import load_settings
+
+    settings = settings or load_settings()
+    organize.organize(library, settings)
+    playlist_writer.write_all(library, settings.music_path)
