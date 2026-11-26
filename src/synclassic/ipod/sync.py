@@ -86,10 +86,14 @@ def playlist_key(playlist: LibraryPlaylist) -> str:
 @dataclass
 class PlannedPlaylist:
     library: LibraryPlaylist
-    action: str  # "create", "update" or "take over"
+    action: str  # "create", "update", "take over" or "wait" (left alone this time)
     ipod_id: int | None
     items: list[LibraryTrack]
     unchanged: bool = False
+    missing: int = 0  # songs not on the iPod and not downloaded yet
+    reused: int = 0
+    copied: int = 0
+    ipod_count: int = 0  # songs in the iPod's playlist now (take over / update)
 
 
 @dataclass
@@ -101,6 +105,7 @@ class Plan:
     remove_songs: list[itunesdb.SongView] = field(default_factory=list)
     remove_playlists: list[tuple[str, int, str]] = field(default_factory=list)  # (key, id, name)
     skipped: list[tuple[LibraryTrack, str]] = field(default_factory=list)
+    not_ready: set[str] = field(default_factory=set)  # songs neither on the iPod nor downloaded
     bytes_to_copy: int = 0
     bytes_to_free: int = 0
     free_bytes: int = 0
@@ -110,7 +115,7 @@ class Plan:
     def has_changes(self) -> bool:
         return bool(
             self.copy or self.remove_songs or self.remove_playlists or self.play_counts_pending
-            or any(not p.unchanged for p in self.playlists)
+            or any(not p.unchanged and p.action != "wait" for p in self.playlists)
         )
 
     @property
@@ -123,11 +128,24 @@ class Plan:
         lines.append(f"  Copy {len(self.copy)} songs ({self.bytes_to_copy / gb:.2f} GB)")
         lines.append(f"  Reuse {len(self.reuse)} songs already on the iPod")
         for planned in self.playlists:
+            name = planned.library.name
+            if planned.action == "wait":
+                lines.append(
+                    f"  ⏸ “{name}”: left as it is on the iPod ({planned.ipod_count} songs) until all its songs are "
+                    f"ready: {planned.missing} not downloaded yet"
+                )
+                continue
             if planned.unchanged:
-                lines.append(f"  · {planned.library.name}: no changes ({len(planned.items)} songs)")
-            else:
-                verb = {"create": "Create", "update": "Update", "take over": "Take over iPod playlist"}[planned.action]
-                lines.append(f"  · {verb} “{planned.library.name}” ({len(planned.items)} songs)")
+                lines.append(f"  · {name}: no changes ({len(planned.items)} songs)")
+                continue
+            verb = {"create": "Create", "update": "Update", "take over": "Take over iPod playlist"}[planned.action]
+            detail = [f"{planned.reused} already on iPod", f"{planned.copied} to copy"]
+            if planned.missing:
+                detail.append(f"{planned.missing} not downloaded yet")
+            line = f"  · {verb} “{name}”: {len(planned.items)} songs ({', '.join(detail)})"
+            if planned.action in ("take over", "update") and planned.ipod_count and len(planned.items) < planned.ipod_count:
+                line += f"; the iPod's version has {planned.ipod_count}"
+            lines.append(line)
         if self.remove_playlists:
             lines.append(f"  Remove {len(self.remove_playlists)} playlists you removed from Synclassic: "
                          + ", ".join(name for _, _, name in self.remove_playlists))
@@ -169,11 +187,12 @@ def make_plan(library: Library, ipod: IPod, db: itunesdb.Chunk | None = None) ->
         if song.media_type in (0, 1):
             by_text.setdefault(_match_key(song.artist, song.title), []).append(song)
 
+    # Every song in a playlist, downloaded or not: a song that's already on the iPod doesn't
+    # need a downloaded file to be put in a playlist.
     wanted: dict[str, LibraryTrack] = {}
     for playlist in library.playlists():
         for item in library.playlist_tracks(playlist):
-            if item.has_file and item.status in ("downloaded", "review", "local"):
-                wanted.setdefault(item.key, item)
+            wanted.setdefault(item.key, item)
 
     for key, item in wanted.items():
         known = state["tracks"].get(key)
@@ -190,9 +209,13 @@ def make_plan(library: Library, ipod: IPod, db: itunesdb.Chunk | None = None) ->
         if best:
             plan.reuse[key] = best[1].dbid
             continue
+        if not (item.has_file and item.status in ("downloaded", "review", "local")):
+            plan.not_ready.add(key)  # not downloaded yet (or not found on YouTube)
+            continue
         path = pathlib.Path(item.file_path)  # type: ignore[arg-type]
         if path.suffix.lower() not in SUPPORTED:
             plan.skipped.append((item, f"the iPod can't play {path.suffix} files"))
+            plan.not_ready.add(key)
             continue
         plan.copy.append(item)
         plan.bytes_to_copy += path.stat().st_size
@@ -217,7 +240,15 @@ def make_plan(library: Library, ipod: IPod, db: itunesdb.Chunk | None = None) ->
                 ipod_id, action = same_name[0], "take over"
             else:
                 action = "create"
+        all_items = library.playlist_tracks(playlist)
         planned = PlannedPlaylist(playlist, action, ipod_id, items)
+        planned.missing = sum(1 for i in all_items if i.key in plan.not_ready)
+        planned.reused = sum(1 for i in items if i.key in plan.reuse)
+        planned.copied = sum(1 for i in items if i.key in copying)
+        planned.ipod_count = len(existing[ipod_id].track_ids) if ipod_id is not None else 0
+        if action == "take over" and planned.missing:
+            # Never replace an iPod playlist with an incomplete one: it would lose songs.
+            planned.action = "wait"
         if ipod_id is not None and action == "update" and not copying.intersection(i.key for i in items):
             current = existing[ipod_id]
             dbids = [plan.reuse.get(i.key) for i in items]
@@ -234,7 +265,7 @@ def make_plan(library: Library, ipod: IPod, db: itunesdb.Chunk | None = None) ->
     # Songs Synclassic added and nothing needs any more (and no other iPod playlist uses).
     kept_ids = set()
     removed_playlist_ids = {pid for _, pid, _ in plan.remove_playlists}
-    planned_ids = {p.ipod_id for p in plan.playlists if p.ipod_id is not None}
+    planned_ids = {p.ipod_id for p in plan.playlists if p.ipod_id is not None and p.action != "wait"}
     for pid, playlist in existing.items():
         if pid not in removed_playlist_ids and pid not in planned_ids:
             kept_ids.update(playlist.track_ids)
@@ -426,7 +457,7 @@ def apply_plan(
         say(f"Removing playlist “{name}”")
         editor.delete_playlist(pid)
     for planned in plan.playlists:
-        if planned.unchanged:
+        if planned.unchanged or planned.action == "wait":
             continue
         pid = planned.ipod_id
         if pid is None:

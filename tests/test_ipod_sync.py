@@ -225,3 +225,68 @@ def test_cli_dry_run_changes_nothing(tmp_path, ipod, capsys):
     out = capsys.readouterr().out
     assert "Copy 1 songs" in out and "Dry run" in out
     assert ipod.database_path.read_bytes() == before
+
+
+def test_incomplete_playlist_never_replaces_a_bigger_ipod_playlist(tmp_path, ipod):
+    """The 'instrumentals' case: Synclassic has 2 of 242 songs ready, the iPod has all 242."""
+    original = itunesdb.songs(read_db(ipod))
+    on_ipod = original[:3]  # "Old Mix" on the iPod has these 3
+    library = Library(config.app_dir() / "library.db")
+    playlist = library.add_playlist("old mix", SourceSpec("spotify", "https://open.spotify.com/playlist/" + "9" * 22))
+    apply_source(library, playlist, SourcePlaylist("old mix", [song(1), song(2), Track("Never Downloaded", ["Nobody"], spotify_id="n" * 22)]))
+    for item in library.playlist_tracks(playlist)[:2]:
+        path = tmp_path / f"{item.id}.m4a"
+        make_audio(path, seconds=2)
+        library.update_track(item.id, status="downloaded", file_path=str(path))
+
+    plan = sync.make_plan(library, ipod)
+    assert plan.playlists[0].action == "wait"
+    text = "\n".join(plan.summary())
+    assert "left as it is on the iPod (3 songs)" in text and "1 not downloaded yet" in text
+    sync.apply_plan(library, plan, lambda s: None)
+    db = read_db(ipod)
+    assert playlist_titles(db, "Old Mix") == [s.title for s in on_ipod]  # untouched
+    assert "old mix" not in [p.name for p in itunesdb.playlists(db)]
+
+
+def test_songs_already_on_the_ipod_need_no_download(tmp_path, ipod):
+    existing = itunesdb.songs(read_db(ipod))[:4]
+    library = Library(config.app_dir() / "library.db")
+    playlist = library.add_playlist("From iPod", SourceSpec("spotify", "https://open.spotify.com/playlist/" + "8" * 22))
+    # None of these are downloaded, but all are already on the iPod.
+    apply_source(library, playlist, SourcePlaylist("From iPod", [
+        Track(s.title, [s.artist], duration_ms=s.length_ms + 1500, spotify_id=f"{n:022d}") for n, s in enumerate(existing)
+    ]))
+    plan = sync.make_plan(library, ipod)
+    assert not plan.copy and len(plan.reuse) == 4 and plan.playlists[0].action == "create"
+    sync.apply_plan(library, plan, lambda s: None)
+    assert playlist_titles(read_db(ipod), "From iPod") == [s.title for s in existing]
+
+
+def test_jump_tables_keep_the_ipods_letters_for_existing_songs(ipod):
+    db = read_db(ipod)
+    master = next(p for p in itunesdb.playlists(db) if p.is_master).chunk
+    songs = {s.id: s for s in itunesdb.songs(db)}
+    ids = [m.u32(0x18) for m in master.find(b"mhip")]
+    # Give the master a title index whose letters follow a different convention (all "Q").
+    order = library_index.full_order(ids, songs, library_index.SORT_TITLE)
+    position = {song_id: n for n, song_id in enumerate(ids)}
+    index52 = itunesdb.Chunk(b"mhod", bytearray(24), body=library_index._body52(3, [position[i] for i in order]))
+    index53 = itunesdb.Chunk(b"mhod", bytearray(24), body=library_index._body53(3, [(ord("Q"), 0, len(order))]))
+    for chunk in (index52, index53):
+        chunk.header[0:4] = b"mhod"
+        struct.pack_into("<III", chunk.header, 4, 24, 0, 52 if chunk is index52 else 53)
+    master.children.extend([index52, index53])
+
+    editor = Editor(db)
+    from synclassic.ipod.edit import NewSong
+
+    editor.add_song(NewSong(":iPod_Control:Music:F00:NEW1.m4a", "m4a", 10, 1000, 128, 44100, False, "Aaaa New Song"))
+    editor.finish()
+    body = next(c for c in master.children if c.tag == b"mhod" and c.mhod_type == 53).body
+    count = struct.unpack_from("<I", body, 4)[0]
+    groups = [struct.unpack_from("<HHII", body, 16 + 12 * n) for n in range(count)]
+    letters = [chr(g[0]) for g in groups]
+    assert "Q" in letters and sum(g[3] for g in groups if chr(g[0]) == "Q") == len(order)  # kept
+    assert sum(g[3] for g in groups) == len(order) + 1
+    assert "A" in letters  # the new song got its own letter

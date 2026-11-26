@@ -138,10 +138,16 @@ def merged_order(existing: list[int], wanted: list[int], songs: dict[int, SongVi
     return order
 
 
-def jump_table(order: list[int], songs: dict[int, SongView], sort_type: int) -> list[tuple[int, int, int]]:
+def jump_table(
+    order: list[int], songs: dict[int, SongView], sort_type: int, known: dict[int, int] | None = None
+) -> list[tuple[int, int, int]]:
+    """Letter groups for this order. `known` = letters songs already have on the iPod (kept as-is)."""
     groups: list[list[int]] = []
     for position, song_id in enumerate(order):
-        letter = jump_letter(_strip_article(_letter_text(_Song(songs[song_id]), sort_type)))
+        if known and song_id in known:
+            letter = known[song_id]
+        else:
+            letter = jump_letter(_strip_article(_letter_text(_Song(songs[song_id]), sort_type)))
         if groups and groups[-1][0] == letter:
             groups[-1][2] += 1
         else:
@@ -181,18 +187,35 @@ def update(master: Chunk, old_ids: list[int], new_ids: list[int], songs: dict[in
     for position, song_id in enumerate(new_ids):
         new_position.setdefault(song_id, position)
     orders: dict[int, list[int]] = {}
+    old_orders: dict[int, list[int]] = {}
     for child in master.children:
         if child.tag == b"mhod" and child.mhod_type == 52 and len(child.body) >= 48:
             sort_type, positions = _positions(child.body)
             existing = [old_ids[p] for p in positions if p < len(old_ids)]
+            old_orders[sort_type] = existing
             order = merged_order(existing, list(dict.fromkeys(new_ids)), songs, sort_type)
             orders[sort_type] = order
             child.body = _body52(sort_type, [new_position[i] for i in order])
     for child in master.children:
         if child.tag == b"mhod" and child.mhod_type == 53 and len(child.body) >= 16:
             sort_type = struct.unpack_from("<I", child.body, 0)[0]
+            known = _known_letters(child.body, old_orders.get(sort_type, []))
             order = orders.get(sort_type) or full_order(list(dict.fromkeys(new_ids)), songs, sort_type)
-            child.body = _body53(sort_type, jump_table(order, songs, sort_type))
+            child.body = _body53(sort_type, jump_table(order, songs, sort_type, known))
+
+
+def _known_letters(body: bytes, old_order: list[int]) -> dict[int, int]:
+    """The letter each existing song has in an existing jump table (so it can be kept)."""
+    count = struct.unpack_from("<I", body, 4)[0]
+    letters: dict[int, int] = {}
+    for n in range(count):
+        offset = 16 + n * 12
+        if offset + 12 > len(body):
+            break
+        letter, _, start, size = struct.unpack_from("<HHII", body, offset)
+        for position in range(start, min(start + size, len(old_order))):
+            letters[old_order[position]] = letter
+    return letters
 
 
 def jump_tables_match(master: Chunk, ids: list[int], songs: dict[int, SongView]) -> dict[int, bool]:

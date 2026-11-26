@@ -195,13 +195,17 @@ def format_report(report: CheckReport) -> list[str]:
             lines.append(f"  ⚠ {len(report.missing_files)} songs are listed but their file is missing on the iPod")
         if report.unlisted_files:
             lines.append(f"  · {report.unlisted_files} music files on the iPod aren't in the database (leftovers; they use space)")
+        names = {3: "songs", 4: "albums", 5: "artists", 7: "genres", 0x12: "composers", 0x1D: "shows",
+                 0x1E: "seasons", 0x1F: "episodes", 0x23: "album artists", 0x24: "album groups"}
         if report.index_types:
-            names = {3: "songs", 4: "albums", 5: "artists", 7: "genres", 0x12: "composers", 0x1D: "shows",
-                     0x1E: "seasons", 0x1F: "episodes", 0x23: "album artists", 0x24: "album groups"}
             lines.append("  · Menu indexes: " + ", ".join(names.get(t, str(t)) for t in report.index_types))
         if report.jump_tables:
             good = sum(report.jump_tables.values())
-            lines.append(f"  · Letter-jump tables reproduced: {good} of {len(report.jump_tables)}")
+            line = f"  · Letter-jump tables reproduced: {good} of {len(report.jump_tables)}"
+            differ = [names.get(t, str(t)) for t, ok in report.jump_tables.items() if not ok]
+            if differ:
+                line += f" (differ: {', '.join(differ)}; existing songs keep the iPod's letters)"
+            lines.append(line)
         lines.append(f"  · Play counts waiting to be read: {'yes' if report.play_counts_file else 'no'}")
         lines.append(f"  · Album artwork database: {'yes' if report.artwork_db else 'no'}")
         lines.append("")

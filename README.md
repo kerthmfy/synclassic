@@ -193,9 +193,12 @@ What a sync does:
 
 - Copies the songs of your Synclassic playlists to the iPod. Songs that are **already on the
   iPod** (same artist, title and length) are reused, not copied again, and keep their play counts.
-- Creates each playlist on the iPod in Spotify order. An iPod playlist with **the same name**
-  is taken over (filled with Synclassic's songs). Rename a playlist in Synclassic to match an
-  existing iPod playlist if you want that one taken over.
+- Creates each playlist on the iPod in Spotify order. Songs already on the iPod are used even
+  if Synclassic hasn't downloaded them.
+- An iPod playlist with **the same name** is taken over (filled with Synclassic's songs), but
+  only once every one of its songs is ready (on the iPod or downloaded). Until then the iPod's
+  version is left exactly as it is, so a playlist never loses songs. Rename a playlist in
+  Synclassic to match an existing iPod playlist if you want that one taken over.
 - Saves plays, skips and ratings from the iPod first.
 - Removes songs **Synclassic added** once no playlist uses them. Music you put on the iPod
   some other way is never deleted, and your other playlists are left as they are.
