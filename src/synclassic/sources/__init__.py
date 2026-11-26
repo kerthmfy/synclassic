@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import pathlib
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from synclassic.models import SourcePlaylist
-from synclassic.sources import spotify_public
+from synclassic.sources import spotify_page, spotify_public
 from synclassic.sources.csv_import import parse_csv
 from synclassic.sources.m3u import parse_m3u
 from synclassic.sources.spotify_api import SpotifyApiError, SpotifyClient
@@ -15,6 +16,11 @@ from synclassic.sources.spotify_links import SpotifyRef, is_liked_songs, parse_s
 
 class SourceError(RuntimeError):
     pass
+
+
+# Reads a whole public playlist from Spotify's web page: (link, expected song count, name) -> playlist.
+# Provided by the app/terminal when the built-in browser is available (see sources/full_reader.py).
+FullReader = Callable[[SpotifyRef, "int | None", str], "SourcePlaylist | None"]
 
 
 @dataclass(frozen=True)
@@ -59,7 +65,7 @@ def specs_from_input(text: str) -> list[SourceSpec]:
     raise SourceError(f"Unsupported file type '{suffix}'. Use .m3u8, .m3u or .csv")
 
 
-def read_source(spec: SourceSpec, client: SpotifyClient | None) -> SourcePlaylist:
+def read_source(spec: SourceSpec, client: SpotifyClient | None, full_reader: FullReader | None = None) -> SourcePlaylist:
     try:
         if spec.kind == "liked":
             if not client:
@@ -69,7 +75,7 @@ def read_source(spec: SourceSpec, client: SpotifyClient | None) -> SourcePlaylis
             ref = parse_spotify_ref(spec.ref)
             if not ref:
                 raise SourceError(f"Bad Spotify link: {spec.ref}")
-            return _read_spotify(ref, client)
+            return _read_spotify(ref, client, full_reader)
         if spec.kind == "m3u":
             path = pathlib.Path(spec.ref)
             if not path.is_file():
@@ -95,7 +101,7 @@ def read_source(spec: SourceSpec, client: SpotifyClient | None) -> SourcePlaylis
     raise SourceError(f"Unknown source type {spec.kind}")
 
 
-def _read_spotify(ref: SpotifyRef, client: SpotifyClient | None) -> SourcePlaylist:
+def _read_spotify(ref: SpotifyRef, client: SpotifyClient | None, full_reader: FullReader | None) -> SourcePlaylist:
     if client:
         try:
             if ref.kind == "playlist":
@@ -105,17 +111,60 @@ def _read_spotify(ref: SpotifyRef, client: SpotifyClient | None) -> SourcePlayli
             return client.track(ref.id)
         except SpotifyApiError as error:
             # Since Feb 2026, personal Spotify apps can only read the songs of playlists you own
-            # or collaborate on. Anything else goes through the public reader.
+            # or collaborate on. Anything else goes through the public readers.
             if error.status not in (401, 403, 404):
                 raise
     playlist = spotify_public.read_public(ref)
-    if client and ref.kind == "playlist" and playlist.truncated:
-        playlist.note = (
-            f"Spotify only lets personal apps read playlists you own or collaborate on, so only the first "
-            f"{spotify_public.EMBED_LIMIT} songs of this playlist could be read. Tip: in Spotify, add the songs "
-            "to a playlist of your own and use that instead."
-        )
+    if ref.kind != "playlist":
+        return playlist
+
+    # The regular page tells us the real song count, and has album names for the first songs.
+    page = spotify_page.fetch_page_info(ref)
+    total = page.total if page and page.total else None
+    missing = total is not None and total > len(playlist.tracks)
+    if missing or (total is None and playlist.truncated):
+        full = full_reader(ref, total, playlist.name) if full_reader else None
+        if full and len(full.tracks) > len(playlist.tracks):
+            full.name = playlist.name or full.name
+            full.cover_url = full.cover_url or playlist.cover_url
+            return full
+        playlist.truncated = True
+        count = f"{len(playlist.tracks)} of {total}" if total else f"the first {len(playlist.tracks)}"
+        if full_reader:
+            playlist.note = (
+                f"Only {count} songs could be read: Spotify's web page couldn't be read in full this time. "
+                "Try updating again later."
+            )
+        elif client:
+            playlist.note = (
+                f"Only {count} songs could be read. Spotify only lets personal apps read playlists you own or "
+                "collaborate on; turn on the full-playlist reader in Settings, or copy the songs into a "
+                "playlist of your own."
+            )
+        else:
+            playlist.note = (
+                f"Only {count} songs could be read without logging in. Turn on the full-playlist reader in "
+                "Settings, or log in to read playlists you own."
+            )
+    else:
+        playlist.truncated = False
+        playlist.note = ""
+    if page:
+        _add_album_info(playlist, page.tracks)
     return playlist
+
+
+def _add_album_info(playlist: SourcePlaylist, richer: list) -> None:
+    """The embed has no album names; copy them from the page for the songs it covers."""
+    by_id = {t.spotify_id: t for t in richer if t.spotify_id}
+    for track in playlist.tracks:
+        extra = by_id.get(track.spotify_id)
+        if not extra:
+            continue
+        track.album = track.album or extra.album
+        track.cover_url = track.cover_url or extra.cover_url
+        track.track_number = track.track_number or extra.track_number
+        track.disc_number = track.disc_number or extra.disc_number
 
 
 def _fill_spotify_only_tracks(playlist: SourcePlaylist) -> None:

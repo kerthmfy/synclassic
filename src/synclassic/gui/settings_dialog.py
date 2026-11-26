@@ -5,6 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -93,6 +94,13 @@ class SettingsDialog(QDialog):
         self.pause.setSuffix(" s")
         self.pause.setValue(self.settings.download_pause)
         form.addRow("Pause between downloads", self.pause)
+        self.full_reader = QCheckBox("Read playlists over 100 songs in full from Spotify's web page")
+        self.full_reader.setChecked(self.settings.full_playlist_reader)
+        self.full_reader.setToolTip(
+            "Without logging in (or for playlists you only follow), Spotify shares just 100 songs.\n"
+            "This opens Spotify's page in a small window and scrolls through it to read every song."
+        )
+        form.addRow("", self.full_reader)
         layout.addWidget(music)
 
         # --- spotify ---
@@ -186,6 +194,7 @@ class SettingsDialog(QDialog):
         self.settings.mp3_quality = self.mp3_quality.currentData()
         self.settings.cookies_from_browser = self.cookies.currentData()
         self.settings.download_pause = float(self.pause.value())
+        self.settings.full_playlist_reader = self.full_reader.isChecked()
         self.settings.spotify_client_id = self.client_id.text().strip() or self.settings.spotify_client_id
         save_settings(self.settings)
         self.accept()

@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
 from synclassic import __version__, playlist_writer
 from synclassic.config import app_dir, load_settings
 from synclassic.gui.add_dialog import AddDialog
+from synclassic.gui.full_reader_bridge import FullReaderBridge
 from synclassic.gui.picker_dialog import fmt_time, open_picker
 from synclassic.gui.settings_dialog import SettingsDialog
 from synclassic.gui.workers import Task, run_in_background
@@ -80,6 +81,7 @@ class MainWindow(QMainWindow):
         self.library = Library(self.library_path)
         self.job = None  # the running background update, if any
         self.current_key: object = None  # selected sidebar entry: playlist id or ATTENTION
+        self.reader_bridge = FullReaderBridge(self)
 
         self._build_toolbar()
         self._build_body()
@@ -429,7 +431,7 @@ class MainWindow(QMainWindow):
             library = Library(path)
             try:
                 client = _spotify_client(task)
-                added = add_inputs(library, inputs, name, client, task.say)
+                added = add_inputs(library, inputs, name, client, task.say, self._full_reader())
                 task.changed.emit()
                 if added and download:
                     _download(library, task, added, retry_failed=False)
@@ -459,11 +461,12 @@ class MainWindow(QMainWindow):
                 playlists = [p for p in library.playlists() if playlist_ids is None or p.id in playlist_ids]
                 if refresh_sources:
                     client = _spotify_client(task)
+                    reader = self._full_reader()
                     for number, playlist in enumerate(playlists, start=1):
                         if task.should_stop():
                             return None
                         task.progress.emit(0, 0, f"Checking {playlist.name} ({number}/{len(playlists)})…")
-                        report = refresh_playlist(library, playlist, client)
+                        report = refresh_playlist(library, playlist, client, reader)
                         if report.error:
                             task.say(f"{playlist.name}: couldn't read it: {report.error}")
                         else:
@@ -483,6 +486,13 @@ class MainWindow(QMainWindow):
                 library.close()
 
         self._run_job("Updating…", work)
+
+    def _full_reader(self):
+        from synclassic.sources.full_reader import available
+
+        if load_settings().full_playlist_reader and available():
+            return self.reader_bridge.read
+        return None
 
     def _run_job(self, text: str, work, on_done=None) -> None:
         self._set_busy(text)

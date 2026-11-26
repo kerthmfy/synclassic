@@ -7,12 +7,12 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from synclassic import downloader, tagging
+from synclassic import artwork, downloader, tagging
 from synclassic.config import Settings
 from synclassic.library import Library, LibraryPlaylist, LibraryTrack, now
 from synclassic.matcher import Candidate, Matcher, MatchResult
 from synclassic.models import SourcePlaylist
-from synclassic.sources import SourceError, read_source, specs_from_input
+from synclassic.sources import FullReader, SourceError, read_source, specs_from_input, spotify_public
 from synclassic.sources.spotify_api import SpotifyClient
 from synclassic.textnorm import safe_filename
 
@@ -38,9 +38,11 @@ class DownloadReport:
     stopped_early: str = ""
 
 
-def refresh_playlist(library: Library, playlist: LibraryPlaylist, client: SpotifyClient | None) -> RefreshReport:
+def refresh_playlist(
+    library: Library, playlist: LibraryPlaylist, client: SpotifyClient | None, full_reader: FullReader | None = None
+) -> RefreshReport:
     try:
-        source = read_source(playlist.spec, client)
+        source = read_source(playlist.spec, client, full_reader)
     except SourceError as error:
         return RefreshReport(playlist.name, error=str(error))
     return apply_source(library, playlist, source)
@@ -65,7 +67,12 @@ def apply_source(library: Library, playlist: LibraryPlaylist, source: SourcePlay
 
 
 def add_inputs(
-    library: Library, inputs: list[str], name: str | None, client: SpotifyClient | None, say: Say
+    library: Library,
+    inputs: list[str],
+    name: str | None,
+    client: SpotifyClient | None,
+    say: Say,
+    full_reader: FullReader | None = None,
 ) -> list[LibraryPlaylist]:
     """Add playlists from links/files/"liked". Already-added sources are returned as they are."""
     added: list[LibraryPlaylist] = []
@@ -82,7 +89,7 @@ def add_inputs(
                 added.append(existing)
                 continue
             try:
-                source = read_source(spec, client)
+                source = read_source(spec, client, full_reader)
             except SourceError as error:
                 say(f"Couldn't read {spec.describe()}: {error}")
                 continue
@@ -133,8 +140,6 @@ def _enrich(item: LibraryTrack, cand: Candidate) -> None:
         track.album = cand.album
     if not track.album_artist and track.album:
         track.album_artist = track.primary_artist
-    if not track.cover_url and cand.thumbnail:
-        track.cover_url = cand.thumbnail
     if not track.artists and cand.artists:
         track.artists = list(cand.artists)
     if not track.duration_ms and cand.duration_s:
@@ -166,6 +171,23 @@ def process_track(
     return save_candidate(library, item, result, settings, say)
 
 
+def _cover_candidates(item: LibraryTrack, cand: Candidate):
+    """Cover links, best first: Spotify's album art (640 px), then YouTube Music's."""
+    track = item.track
+    if track.cover_url:
+        yield track.cover_url
+    elif track.spotify_id:
+        # No-login links don't include song covers; Spotify's page for the song does.
+        url = spotify_public.track_cover_url(track.spotify_id)
+        if url:
+            track.cover_url = url
+            yield url
+    if cand.thumbnail and cand.kind == "song":
+        yield cand.thumbnail
+    if cand.thumbnail and cand.kind == "video":
+        yield cand.thumbnail  # a video still: only if nothing better exists
+
+
 def save_candidate(
     library: Library, item: LibraryTrack, result: MatchResult, settings: Settings, say: Say, manual: bool = False
 ) -> str:
@@ -185,9 +207,7 @@ def save_candidate(
         say(f"    download failed: {error}")
         return "failed"
 
-    cover = tagging.fetch_cover(item.track.cover_url)
-    if cover is None and cand.thumbnail and cand.thumbnail != item.track.cover_url:
-        cover = tagging.fetch_cover(cand.thumbnail)
+    cover = artwork.best_cover(_cover_candidates(item, cand), fetch=tagging.fetch_cover)
     try:
         tagging.tag_file(download.path, item.track, cover, cand.video_id)
     except Exception as error:  # a tagging problem shouldn't lose the download

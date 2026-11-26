@@ -44,6 +44,8 @@ class Settings:
     spotify_client_id: str = ""
     # Seconds to wait between downloads, to stay polite to YouTube.
     download_pause: float = 2.0
+    # Read public playlists over 100 songs in full by scrolling Spotify's web page.
+    full_playlist_reader: bool = True
 
     @property
     def music_path(self) -> pathlib.Path:
@@ -57,6 +59,7 @@ SETTING_HELP = {
     "cookies_from_browser": "safari, chrome, firefox, brave, edge... or empty to turn off",
     "spotify_client_id": "Client ID of your Spotify developer app (set by 'synclassic login')",
     "download_pause": "Seconds to wait between downloads",
+    "full_playlist_reader": "on/off: read public playlists over 100 songs from Spotify's web page",
 }
 
 
@@ -104,6 +107,12 @@ def set_setting(settings: Settings, key: str, value: str) -> None:
         if number < 0:
             raise ValueError("download_pause can't be negative")
         setattr(settings, key, number)
+        return
+    elif key == "full_playlist_reader":
+        lowered = value.lower()
+        if lowered not in ("on", "off", "true", "false", "yes", "no", "1", "0"):
+            raise ValueError("full_playlist_reader must be on or off")
+        settings.full_playlist_reader = lowered in ("on", "true", "yes", "1")
         return
     elif key == "music_dir" and value:
         value = str(pathlib.Path(value).expanduser().resolve())

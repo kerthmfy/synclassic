@@ -4,23 +4,18 @@ from __future__ import annotations
 
 import pathlib
 
-import requests
-
 from synclassic.models import Track
 
 FREEFORM = "----:com.synclassic:"
 
 
 def fetch_cover(url: str | None) -> bytes | None:
+    """Download an image (None if it isn't a readable JPEG/PNG)."""
     if not url:
         return None
-    try:
-        response = requests.get(url, timeout=30)
-    except requests.RequestException:
-        return None
-    if response.status_code != 200 or not response.content:
-        return None
-    return response.content
+    from synclassic.artwork import download_image
+
+    return download_image(url)
 
 
 def _is_png(data: bytes) -> bool:

@@ -12,6 +12,7 @@ import re
 
 import requests
 
+from synclassic.artwork import upgrade_cover_url
 from synclassic.models import SourcePlaylist, Track
 from synclassic.sources.spotify_links import SpotifyRef
 
@@ -69,9 +70,9 @@ def _best_image(entity: dict) -> str | None:
     images = ((entity.get("visualIdentity") or {}).get("image")) or []
     images = [img for img in images if img.get("url")]
     if images:
-        return max(images, key=lambda img: img.get("maxWidth") or 0)["url"]
+        return upgrade_cover_url(max(images, key=lambda img: img.get("maxWidth") or 0)["url"])
     sources = ((entity.get("coverArt") or {}).get("sources")) or []
-    return sources[0]["url"] if sources else None
+    return upgrade_cover_url(sources[0]["url"]) if sources else None
 
 
 def entity_to_playlist(entity: dict) -> SourcePlaylist:
@@ -126,3 +127,12 @@ def entity_to_playlist(entity: dict) -> SourcePlaylist:
 
 def read_public(ref: SpotifyRef, session: requests.Session | None = None) -> SourcePlaylist:
     return entity_to_playlist(fetch_embed_entity(ref, session))
+
+
+def track_cover_url(track_id: str) -> str | None:
+    """The 640 px album cover of one song, from Spotify's public song page."""
+    try:
+        entity = fetch_embed_entity(SpotifyRef("track", track_id))
+    except SpotifyPublicError:
+        return None
+    return _best_image(entity)

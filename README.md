@@ -73,11 +73,22 @@ synclassic add "~/Downloads/Road Trip.m3u8" ~/Downloads/export.csv
 
 | Input | Login needed? | Notes |
 | --- | --- | --- |
-| Spotify playlist / album / track link | No | Without login, Spotify only shares the first **100 songs** of a playlist. |
+| Spotify playlist / album / track link | No | Playlists over 100 songs are read in full by the full-playlist reader (below). |
 | `liked` (your Liked Songs) | Yes | |
 | Your own playlists, any length | Yes | `synclassic add --all-mine` adds Liked Songs plus every playlist you own. |
 | `.m3u8` / `.m3u` file | No | Songs that already exist on your Mac are used as-is; others are downloaded. |
 | `.csv` export (Exportify, TuneMyMusic) | No | A file with several playlists becomes several playlists. |
+
+## Long playlists without logging in
+
+Spotify only shares the first 100 songs of a playlist with apps that aren't logged in. For
+longer public playlists, Synclassic opens Spotify's own web page in a small window, scrolls
+through the song list automatically and reads every row (about 15 seconds for 150 songs).
+You can watch it work and cancel at any time. It reads the page only; nothing is kept.
+
+It's on by default: turn it off in Settings or with `synclassic config full_playlist_reader off`.
+If Spotify changes its page and the reader can't finish, Synclassic keeps the first 100 songs and
+tells you so.
 
 ## Log in to Spotify (optional)
 
@@ -144,6 +155,12 @@ synclassic config
 | `music_dir` | `~/Music/Synclassic` | |
 | `cookies_from_browser` | off | e.g. `safari`: YouTube Music Premium members get 256 kbps AAC |
 | `download_pause` | `2` | seconds between downloads |
+| `full_playlist_reader` | `on` | read public playlists over 100 songs from Spotify's web page |
+
+Album art: Spotify's 640 × 640 cover is used whenever the song came from Spotify (Spotify
+pages often show a 64 px thumbnail; Synclassic always asks for the full-size one), otherwise
+YouTube Music's album art at up to 1000 px. Covers under 300 px are only used when nothing
+sharper exists.
 
 Audio quality: YouTube Music serves AAC in M4A, which is what the iPod plays, so in `m4a`
 mode the audio is copied without re-encoding whenever possible.

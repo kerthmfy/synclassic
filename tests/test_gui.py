@@ -49,7 +49,7 @@ def test_update_from_window(app, monkeypatch, tmp_path):
         Track("One More Time", ["Daft Punk"], duration_ms=320_000, spotify_id="a" * 22),
         Track("Strange Song", ["Nobody"], duration_ms=200_000, spotify_id="b" * 22),
     ])
-    monkeypatch.setattr(update, "read_source", lambda spec, client: source)
+    monkeypatch.setattr(update, "read_source", lambda spec, client, full_reader=None: source)
 
     library = Library(config.app_dir() / "library.db")
     library.add_playlist("Mix", SourceSpec("spotify", "https://open.spotify.com/playlist/37i9dQZF1DX4o1oenSJRJd"))
@@ -89,7 +89,7 @@ def test_stop_button_stops_between_songs(app, monkeypatch):
     monkeypatch.setattr(tagging, "fetch_cover", lambda url: None)
     monkeypatch.setattr(update, "Matcher", lambda: Matcher(search))
     many = [Track("One More Time", ["Daft Punk"], duration_ms=320_000, spotify_id=f"{n:022d}") for n in range(10)]
-    monkeypatch.setattr(update, "read_source", lambda spec, client: SourcePlaylist("Many", many))
+    monkeypatch.setattr(update, "read_source", lambda spec, client, full_reader=None: SourcePlaylist("Many", many))
 
     library = Library(config.app_dir() / "library.db")
     library.add_playlist("Many", SourceSpec("spotify", "https://open.spotify.com/playlist/37i9dQZF1DX4o1oenSJRJd"))

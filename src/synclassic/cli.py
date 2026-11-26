@@ -140,8 +140,17 @@ def cmd_spotify_playlists(args) -> int:
     return 0
 
 
+def full_reader():
+    """The full-playlist reader, when it's turned on and the built-in browser is installed."""
+    from synclassic.sources import full_reader as reader
+
+    if load_settings().full_playlist_reader and reader.available():
+        return reader.terminal_reader
+    return None
+
+
 def add_sources(library: Library, inputs: list[str], name: str | None) -> list[LibraryPlaylist]:
-    return add_inputs(library, inputs, name, spotify_client(), say)
+    return add_inputs(library, inputs, name, spotify_client(), say, full_reader())
 
 
 def cmd_add(args) -> int:
@@ -174,9 +183,10 @@ def run_update(
     settings = load_settings()
     if refresh:
         client = spotify_client()
+        reader = full_reader()
         say("Checking for changes...")
         for playlist in playlists:
-            print_refresh(refresh_playlist(library, playlist, client))
+            print_refresh(refresh_playlist(library, playlist, client, reader))
     if download:
         say("")
         say(f"Saving music to {settings.music_path} as {settings.format.upper()}")

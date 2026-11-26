@@ -15,8 +15,12 @@ def isolated_home(tmp_path, monkeypatch):
     monkeypatch.setenv("SYNCLASSIC_HOME", str(home))
     from synclassic import config
 
-    settings = config.Settings(music_dir=str(tmp_path / "Music"), download_pause=0)
+    settings = config.Settings(music_dir=str(tmp_path / "Music"), download_pause=0, full_playlist_reader=False)
     config.save_settings(settings)
+    # Never look up real Spotify covers during tests.
+    from synclassic.sources import spotify_public
+
+    monkeypatch.setattr(spotify_public, "track_cover_url", lambda track_id: None)
     return home
 
 

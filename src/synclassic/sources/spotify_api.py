@@ -14,6 +14,7 @@ from collections.abc import Iterator
 
 import requests
 
+from synclassic.artwork import upgrade_cover_url
 from synclassic.models import SourcePlaylist, Track
 from synclassic.sources import spotify_auth
 
@@ -147,7 +148,7 @@ def track_from_api(song: dict | None, local_ok: bool = False) -> Track | None:
         disc_number=song.get("disc_number"),
         release_date=album.get("release_date") or "",
         explicit=song.get("explicit"),
-        cover_url=max(images, key=lambda i: i.get("width") or 0)["url"] if images else None,
+        cover_url=upgrade_cover_url(max(images, key=lambda i: i.get("width") or 0)["url"]) if images else None,
     )
 
 
