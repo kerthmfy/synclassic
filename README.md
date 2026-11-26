@@ -161,16 +161,52 @@ Change the main folder with `synclassic config music_dir /path/to/folder`.
 
 ## Your iPod
 
-Synclassic is becoming a full manager for the iPod 5th/5.5th generation (Video) with Apple's
-firmware. For now it can **check** your iPod without changing anything:
+Synclassic manages the iPod 5th/5.5th generation (Video) with Apple's firmware.
+
+**1. Check it** (read-only, nothing is changed):
 
 ```bash
 synclassic ipod
 ```
 
-(or **Check iPod** in the app). It shows the model, firmware, songs and playlists, and checks
-that Synclassic can rebuild your iPod's music database **byte-for-byte**, which is the safety
-test that has to pass before Synclassic is allowed to write to it.
+It shows the model, songs and playlists, checks that Synclassic can rebuild your iPod's
+database **byte-for-byte**, and runs a write test on a copy in memory. Syncing only works
+when this passes.
+
+**2. Preview a sync** (nothing is changed):
+
+```bash
+synclassic ipod sync --dry-run
+```
+
+**3. Sync**, or use **⇅ Sync iPod** in the app:
+
+```bash
+synclassic ipod sync
+```
+
+```bash
+synclassic ipod eject
+```
+
+What a sync does:
+
+- Copies the songs of your Synclassic playlists to the iPod. Songs that are **already on the
+  iPod** (same artist, title and length) are reused, not copied again, and keep their play counts.
+- Creates each playlist on the iPod in Spotify order. An iPod playlist with **the same name**
+  is taken over (filled with Synclassic's songs). Rename a playlist in Synclassic to match an
+  existing iPod playlist if you want that one taken over.
+- Saves plays, skips and ratings from the iPod first.
+- Removes songs **Synclassic added** once no playlist uses them. Music you put on the iPod
+  some other way is never deleted, and your other playlists are left as they are.
+
+Safety: the iPod's database is backed up before every sync (the last 10 are kept). To go back:
+
+```bash
+synclassic ipod restore
+```
+
+Not yet: album artwork for newly added songs (coming next; songs show without art until then).
 
 ## Settings
 

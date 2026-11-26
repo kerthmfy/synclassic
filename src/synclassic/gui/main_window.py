@@ -114,6 +114,9 @@ class MainWindow(QMainWindow):
         self.stop_action = QAction("■  Stop", self)
         self.stop_action.setEnabled(False)
         self.stop_action.triggered.connect(self.stop_job)
+        self.sync_action = QAction("⇅  Sync iPod", self)
+        self.sync_action.setToolTip("Put your playlists on your iPod (shows what will change first)")
+        self.sync_action.triggered.connect(self.sync_ipod)
         self.ipod_action = QAction("Check iPod", self)
         self.ipod_action.setToolTip("Read your iPod and check that Synclassic can manage it (changes nothing)")
         self.ipod_action.triggered.connect(self.check_ipod)
@@ -122,7 +125,7 @@ class MainWindow(QMainWindow):
         self.settings_action = QAction("Settings", self)
         self.settings_action.setShortcut(QKeySequence.StandardKey.Preferences)
         self.settings_action.triggered.connect(self.open_settings)
-        for action in (self.add_action, self.update_action, self.stop_action):
+        for action in (self.add_action, self.update_action, self.sync_action, self.stop_action):
             bar.addAction(action)
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -449,6 +452,84 @@ class MainWindow(QMainWindow):
         self.status_label.setText("Reading your iPod…")
         run_in_background(self, work, show, lambda error: (self.ipod_action.setEnabled(True), self._job_failed(error)))
 
+    def sync_ipod(self) -> None:
+        from synclassic.ipod import sync as ipod_sync
+        from synclassic.ipod.check import check, format_report
+        from synclassic.ipod.device import find_ipods
+
+        if self.job is not None:
+            QMessageBox.information(self, "Busy", "Wait for the current update to finish, or press Stop.")
+            return
+        path = self.library_path
+
+        def prepare(task):
+            ipods = find_ipods()
+            if not ipods:
+                return None
+            report = check(ipods[0])
+            if not report.safe_to_manage:
+                return ("unsafe", format_report(report))
+            library = Library(path)
+            try:
+                return ("plan", ipod_sync.make_plan(library, ipods[0]))
+            finally:
+                library.close()
+
+        def show(result):
+            self._set_idle("Ready")
+            if result is None:
+                QMessageBox.information(self, "No iPod found", "Plug in your iPod and wait until it appears in Finder, then try again.")
+                return
+            kind, value = result
+            if kind == "unsafe":
+                box = QMessageBox(QMessageBox.Icon.Warning, "Can't sync", "The iPod check found a problem, so nothing was changed.", parent=self)
+                box.setDetailedText("\n".join(value))
+                box.exec()
+                return
+            plan = value
+            lines = plan.summary()
+            if not plan.has_changes:
+                QMessageBox.information(self, "iPod is up to date", "\n".join(lines[1:]))
+                return
+            if not plan.fits:
+                QMessageBox.warning(self, "Not enough space", "\n".join(lines))
+                return
+            box = QMessageBox(QMessageBox.Icon.Question, "Sync iPod", "\n".join(lines[:1] + lines[1:12]), parent=self)
+            box.setInformativeText("The iPod's database is backed up first. Sync now?")
+            if len(lines) > 12:
+                box.setDetailedText("\n".join(lines))
+            box.setStandardButtons(QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Ok)
+            box.button(QMessageBox.StandardButton.Ok).setText("Sync")
+            if box.exec() == QMessageBox.StandardButton.Ok:
+                self._apply_sync(plan)
+
+        self._set_busy("Reading your iPod…")
+        self.stop_action.setEnabled(False)
+        run_in_background(self, prepare, show, self._job_failed)
+
+    def _apply_sync(self, plan) -> None:
+        from synclassic.ipod import sync as ipod_sync
+
+        path = self.library_path
+
+        def work(task: Task):
+            library = Library(path)
+            try:
+                ipod_sync.apply_plan(
+                    library, plan, task.say, should_stop=task.should_stop,
+                    progress=lambda n, total, text: task.progress.emit(n, total, text),
+                )
+                return {"summary": "iPod synced.", "ipod": plan.ipod}
+            finally:
+                library.close()
+
+        def done(result):
+            answer = QMessageBox.question(self, "Sync complete", "Your iPod is synced. Eject it now?")
+            if answer == QMessageBox.StandardButton.Yes:
+                self.say(ipod_sync.eject(result["ipod"]))
+
+        self._run_job("Syncing iPod…", work, done, verb="Copying to iPod")
+
     def open_settings(self) -> None:
         before = load_settings().folder_layout
         SettingsDialog(self).exec()
@@ -540,7 +621,8 @@ class MainWindow(QMainWindow):
             return self.reader_bridge.read
         return None
 
-    def _run_job(self, text: str, work, on_done=None) -> None:
+    def _run_job(self, text: str, work, on_done=None, verb: str = "Downloading") -> None:
+        self._progress_verb = verb
         self._set_busy(text)
         self.job = run_in_background(
             self, work,
@@ -561,7 +643,7 @@ class MainWindow(QMainWindow):
         self.status_label.setText(text)
         self.progress.setRange(0, 0)
         self.progress.show()
-        for action in (self.update_action, self.add_action):
+        for action in (self.update_action, self.add_action, self.sync_action):
             action.setEnabled(False)
         self.update_one.setEnabled(False)
         self.stop_action.setEnabled(True)
@@ -570,7 +652,7 @@ class MainWindow(QMainWindow):
         self.job = None
         self.progress.hide()
         self.status_label.setText(text)
-        for action in (self.update_action, self.add_action):
+        for action in (self.update_action, self.add_action, self.sync_action):
             action.setEnabled(True)
         self.update_one.setEnabled(True)
         self.stop_action.setEnabled(False)
@@ -584,7 +666,8 @@ class MainWindow(QMainWindow):
         self.progress.setRange(0, total)
         self.progress.setValue(min(number - 1, total))
         self.progress.setFormat(f"{min(number, total)} / {total}")
-        self.status_label.setText(f"Downloading: {text}" if number <= total else "Finishing…")
+        verb = getattr(self, "_progress_verb", "Downloading")
+        self.status_label.setText(f"{verb}: {text}" if number <= total else "Finishing…")
 
     def _job_finished(self, result, on_done) -> None:
         summary = "Done."

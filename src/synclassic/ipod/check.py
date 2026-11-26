@@ -31,6 +31,9 @@ class CheckReport:
     play_counts_file: bool = False
     artwork_db: bool = False
     sections: list[int] = field(default_factory=list)
+    index_types: list[int] = field(default_factory=list)
+    jump_tables: dict[int, bool] = field(default_factory=dict)
+    write_test: str = ""  # "" = not run, "ok", or what went wrong
     problems: list[str] = field(default_factory=list)
 
     @property
@@ -91,9 +94,71 @@ def check(ipod: IPod) -> CheckReport:
                 if relative not in listed:
                     report.unlisted_files += 1
 
+    masters = [p for p in itunesdb.playlists(db, 2) if p.is_master]
+    if masters:
+        from synclassic.ipod import library_index
+
+        report.index_types = library_index.index_sort_types(masters[0].chunk)[0]
+        report.jump_tables = library_index.jump_tables_match(
+            masters[0].chunk, masters[0].track_ids, {s.id: s for s in songs}
+        )
+    if report.round_trip_ok and not report.hashed_database:
+        report.write_test = write_self_test(raw)
+        if report.write_test != "ok":
+            report.problems.append(f"The in-memory write test failed: {report.write_test}")
+
     report.play_counts_file = (ipod.control / "iTunes" / "Play Counts").is_file()
     report.artwork_db = (ipod.control / "Artwork" / "ArtworkDB").is_file()
     return report
+
+
+def write_self_test(raw: bytes) -> str:
+    """On a copy in memory: add a song and a playlist, rebuild indexes, write and re-read.
+
+    Returns "ok" or a description of the problem. The iPod is never touched.
+    """
+    import struct
+
+    from synclassic.ipod.edit import Editor, NewSong
+
+    try:
+        db = itunesdb.parse(raw)
+        before = itunesdb.songs(db)
+        editor = Editor(db)
+        new_id, dbid = editor.add_song(NewSong(
+            location=":iPod_Control:Music:F00:TEST.m4a", filetype="m4a", size=1000, length_ms=200000,
+            bitrate=256, sample_rate=44100, vbr=False, title="Synclassic Test", artist="Synclassic",
+            album="Test Album", album_artist="Synclassic",
+        ))
+        pid = editor.create_playlist("Synclassic Test Playlist")
+        editor.set_playlist_songs(pid, [(new_id, dbid)] + [(s.id, s.dbid) for s in before[:2]])
+        editor.finish()
+        data = itunesdb.serialize(db)
+        again = itunesdb.parse(data)
+        if itunesdb.serialize(again) != data:
+            return "the edited database didn't read back identically"
+        songs = itunesdb.songs(again)
+        if len(songs) != len(before) + 1 or songs[-1].title != "Synclassic Test":
+            return "the test song wasn't stored correctly"
+        for kind in (2, 3):
+            if itunesdb.section(again, kind) is None:
+                continue
+            lists = itunesdb.playlists(again, kind)
+            test = [p for p in lists if p.name == "Synclassic Test Playlist"]
+            if len(test) != 1 or test[0].track_ids[0] != new_id:
+                return f"the test playlist wasn't stored correctly in section {kind}"
+            master = next(p for p in lists if p.is_master)
+            if new_id not in master.track_ids:
+                return "the test song is missing from the main library"
+            for child in master.chunk.children:
+                if child.tag == b"mhod" and child.mhod_type == 52:
+                    count = struct.unpack_from("<I", child.body, 4)[0]
+                    positions = struct.unpack_from(f"<{count}I", child.body, 48)
+                    if sorted(positions) != list(range(len(master.track_ids))):
+                        return "a menu index didn't cover every song after the change"
+        return "ok"
+    except Exception as error:  # report, never crash the check
+        return f"{error.__class__.__name__}: {error}"
 
 
 def format_report(report: CheckReport) -> list[str]:
@@ -130,6 +195,13 @@ def format_report(report: CheckReport) -> list[str]:
             lines.append(f"  ⚠ {len(report.missing_files)} songs are listed but their file is missing on the iPod")
         if report.unlisted_files:
             lines.append(f"  · {report.unlisted_files} music files on the iPod aren't in the database (leftovers; they use space)")
+        if report.index_types:
+            names = {3: "songs", 4: "albums", 5: "artists", 7: "genres", 0x12: "composers", 0x1D: "shows",
+                     0x1E: "seasons", 0x1F: "episodes", 0x23: "album artists", 0x24: "album groups"}
+            lines.append("  · Menu indexes: " + ", ".join(names.get(t, str(t)) for t in report.index_types))
+        if report.jump_tables:
+            good = sum(report.jump_tables.values())
+            lines.append(f"  · Letter-jump tables reproduced: {good} of {len(report.jump_tables)}")
         lines.append(f"  · Play counts waiting to be read: {'yes' if report.play_counts_file else 'no'}")
         lines.append(f"  · Album artwork database: {'yes' if report.artwork_db else 'no'}")
         lines.append("")
@@ -138,6 +210,8 @@ def format_report(report: CheckReport) -> list[str]:
             if report.round_trip_ok
             else "  ✗ Synclassic could NOT rebuild this database exactly."
         )
+        if report.write_test == "ok":
+            lines.append("  ✓ Write test passed (a test song and playlist, added in memory only).")
     for problem in report.problems:
         lines.append(f"  ✗ {problem}")
     if report.safe_to_manage:

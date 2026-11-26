@@ -103,3 +103,30 @@ def test_stop_button_stops_between_songs(app, monkeypatch):
     assert len(calls) < 10
     assert "Stopped" in window.status_label.text()
     window.close()
+
+
+def test_sync_ipod_from_window(app, monkeypatch, tmp_path):
+    """Preview -> confirm -> sync, through the real window (dialogs answered automatically)."""
+    from PySide6.QtWidgets import QMessageBox
+
+    from synclassic.gui.main_window import MainWindow
+    from synclassic.ipod import itunesdb
+    from tests.test_ipod_read import fake_ipod, load
+    from tests.test_ipod_sync import library_with, song
+
+    root = fake_ipod(tmp_path, load("captured-album-index-36.b64"))
+    monkeypatch.setenv("SYNCLASSIC_IPOD", str(root))
+    library_with(tmp_path, {"Gym": [song(1), song(2)]}).close()
+    shown = []
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: shown.append(self.text()) or QMessageBox.StandardButton.Ok)
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.No))
+
+    window = MainWindow()
+    window.sync_ipod()
+    assert wait_until(app, lambda: window.job is not None or len(shown) > 1, 20)
+    assert wait_until(app, lambda: window.job is None, 30)
+    assert any("Copy 2 songs" in text for text in shown)
+    db = itunesdb.parse((root / "iPod_Control" / "iTunes" / "iTunesDB").read_bytes())
+    assert [p.name for p in itunesdb.playlists(db) if p.name == "Gym"] == ["Gym"]
+    assert window.status_label.text() == "iPod synced."
+    window.close()

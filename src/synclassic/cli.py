@@ -358,27 +358,91 @@ def cmd_config(args) -> int:
     return 0
 
 
-def cmd_ipod(args) -> int:
-    from synclassic.ipod.check import check, format_report
+def _pick_ipod(args):
     from synclassic.ipod.device import find_ipods, ipod_at
 
     try:
         ipods = [ipod_at(args.path)] if args.path else find_ipods()
     except FileNotFoundError as error:
         say(str(error))
-        return 1
+        return None
     if not ipods:
         say("No iPod found. Plug it in and wait until it shows up in Finder, then try again.")
         say("(If it's mounted somewhere unusual: synclassic ipod --path /Volumes/YourIPod)")
+        return None
+    if len(ipods) > 1:
+        say(f"More than one iPod is connected; using {ipods[0].root}. Choose another with --path.")
+    return ipods[0]
+
+
+def cmd_ipod(args) -> int:
+    from synclassic.ipod import sync as ipod_sync
+    from synclassic.ipod.check import check, format_report
+
+    ipod = _pick_ipod(args)
+    if ipod is None:
         return 1
-    ok = True
-    for ipod in ipods:
+    action = args.action
+
+    if action == "check":
         report = check(ipod)
         for line in format_report(report):
             say(line)
-        ok = ok and report.safe_to_manage
-        say()
-    return 0 if ok else 2
+        return 0 if report.safe_to_manage else 2
+
+    if action == "eject":
+        say(ipod_sync.eject(ipod))
+        return 0
+
+    if action == "restore":
+        backups = ipod_sync.list_backups(ipod)
+        if not backups:
+            say("There are no backups of this iPod yet (one is made before every sync).")
+            return 1
+        if args.backup is None:
+            say("Backups of this iPod (newest first):")
+            for number, folder in enumerate(backups, start=1):
+                say(f"  {number}. {folder.name}")
+            say("Restore one with: synclassic ipod restore NUMBER")
+            return 0
+        if not 1 <= args.backup <= len(backups):
+            say(f"Choose a number from 1 to {len(backups)}.")
+            return 1
+        folder = backups[args.backup - 1]
+        if not args.yes and input(f"Put the database from {folder.name} back on the iPod? [y/N] ").strip().lower() != "y":
+            return 0
+        ipod_sync.restore(ipod, folder)
+        say(f"Restored the database from {folder.name}.")
+        return 0
+
+    # sync
+    report = check(ipod)
+    if not report.safe_to_manage:
+        for line in format_report(report):
+            say(line)
+        say("Not syncing: the check above has to pass first. Nothing was changed.")
+        return 2
+    library = open_library()
+    plan = ipod_sync.make_plan(library, ipod)
+    for line in plan.summary():
+        say(line)
+    if args.dry_run or not plan.has_changes or not plan.fits:
+        if args.dry_run:
+            say("(Dry run: nothing was changed.)")
+        return 0 if plan.fits else 1
+    if not args.yes and input("Sync now? [y/N] ").strip().lower() != "y":
+        return 0
+    try:
+        saved = ipod_sync.apply_plan(library, plan, say)
+    except ipod_sync.SyncError as error:
+        say(f"Sync stopped: {error}")
+        return 1
+    say(f"(Backup of the previous database: {saved})")
+    if args.eject:
+        say(ipod_sync.eject(ipod))
+    else:
+        say("Eject the iPod before unplugging it: synclassic ipod eject")
+    return 0
 
 
 def cmd_doctor(args) -> int:
@@ -468,8 +532,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("value", nargs="?")
     p.set_defaults(func=cmd_config)
 
-    p = sub.add_parser("ipod", help="check a connected iPod (read-only: nothing is changed)")
+    p = sub.add_parser("ipod", help="iPod: check (default, read-only), sync, restore a backup, eject")
+    p.add_argument("action", nargs="?", default="check", choices=["check", "sync", "restore", "eject"])
+    p.add_argument("backup", nargs="?", type=int, help="restore: backup number (see 'synclassic ipod restore')")
     p.add_argument("--path", help="the iPod's folder, if it isn't found automatically")
+    p.add_argument("--dry-run", action="store_true", help="sync: only show what would change")
+    p.add_argument("--yes", action="store_true", help="don't ask for confirmation")
+    p.add_argument("--eject", action="store_true", help="sync: eject the iPod afterwards")
     p.set_defaults(func=cmd_ipod)
 
     p = sub.add_parser("gui", help="open the Synclassic app window")
