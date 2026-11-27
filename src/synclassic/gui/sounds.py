@@ -54,3 +54,39 @@ def play_chime() -> None:
     effect.play()
     _effects.append(effect)  # kept alive while it plays
     del _effects[:-3]
+
+
+def tick_file() -> pathlib.Path:
+    """The click wheel's tick: a tiny, soft click."""
+    path = app_dir() / "sounds" / "tick.wav"
+    if path.is_file():
+        return path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    frames = []
+    for i in range(int(RATE * 0.012)):
+        t = i / RATE
+        value = math.exp(-t * 900) * (math.sin(2 * math.pi * 3200 * t) * 0.6 + math.sin(2 * math.pi * 1100 * t) * 0.4)
+        frames.append(struct.pack("<h", int(value * 0.5 * 32767)))
+    with wave.open(str(path), "wb") as out:
+        out.setnchannels(1)
+        out.setsampwidth(2)
+        out.setframerate(RATE)
+        out.writeframes(b"".join(frames))
+    return path
+
+
+_tick = []
+
+
+def play_tick() -> None:
+    try:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtMultimedia import QSoundEffect
+    except ImportError:
+        return
+    if not _tick:
+        effect = QSoundEffect()
+        effect.setSource(QUrl.fromLocalFile(str(tick_file())))
+        effect.setVolume(0.35)
+        _tick.append(effect)
+    _tick[0].play()

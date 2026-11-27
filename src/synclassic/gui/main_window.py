@@ -122,6 +122,9 @@ class MainWindow(QMainWindow):
         self.player.error.connect(self.say)
         self.player.finished_item.connect(self._finished_playing)
         self.player.track_changed.connect(self._lastfm_now_playing)
+        self.player.track_changed.connect(self._virtual_ipod_track)
+        self.player.position_changed.connect(lambda position, duration: self.ipod_graphic.set_position(position, duration))
+        self.player.playing_changed.connect(lambda playing: self.ipod_graphic.set_playing(playing))
         self.player.counted.connect(lambda item: self._lastfm_send_plays())
         self.mini_player = None
         self.menu_bar_player = None
@@ -507,8 +510,17 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(24, 18, 24, 12)
         top = QHBoxLayout()
-        self.ipod_graphic = IPodGraphic()
-        self.ipod_graphic.setFixedSize(190, 300)
+        from synclassic.gui.sounds import play_tick
+        from synclassic.gui.virtual_ipod import VirtualIPod
+
+        self.ipod_graphic = VirtualIPod()
+        self.ipod_graphic.setFixedSize(240, 392)
+        self.ipod_graphic.tick = play_tick
+        self.ipod_graphic.play_requested.connect(self._play_ipod_songs)
+        self.ipod_graphic.toggle_requested.connect(self.play_pause)
+        self.ipod_graphic.next_requested.connect(lambda: self.player.next())
+        self.ipod_graphic.previous_requested.connect(lambda: self.player.previous())
+        self.ipod_graphic.cover_for = self._cover_image
         top.addWidget(self.ipod_graphic)
         top.addSpacing(18)
         info = QVBoxLayout()
@@ -1245,10 +1257,12 @@ class MainWindow(QMainWindow):
         self.player.play_list([item for item, _ in items], start)
 
     def _play_from_table(self, table, row: int) -> None:
+        self._play_ipod_songs(table.song_ids_in_view(), row)
+
+    def _play_ipod_songs(self, ids: list, row: int) -> None:
         contents, ipod = self.ipod_contents, self.ipod
         if contents is None or ipod is None:
             return
-        ids = table.song_ids_in_view()
         items, start = [], 0
         for n, song_id in enumerate(ids):
             song = contents.songs.get(song_id)
@@ -1699,6 +1713,7 @@ class MainWindow(QMainWindow):
         if ipod is None:
             self.ipod_contents = None
             self.on_ipod_keys = set()
+            self.ipod_graphic.set_contents(None)
             return
         from synclassic.ipod import browse
 
@@ -1723,6 +1738,7 @@ class MainWindow(QMainWindow):
                 return
             self.ipod_contents = contents
             self.on_ipod_keys = keys
+            self.ipod_graphic.set_contents(contents)
             self.albums_page.set_contents(contents)
             self.artists_page.set_contents(contents)
             self.genres_page.set_contents(contents)
@@ -2028,6 +2044,30 @@ class MainWindow(QMainWindow):
 
         run_in_background(self, work, done, failed)
 
+    def _virtual_ipod_track(self, item) -> None:
+        number = getattr(self.player, "position", 0) + 1
+        total = len(getattr(self.player, "order", []) or [])
+        self.ipod_graphic.set_now_playing(item, number if item else 0, total)
+
+    def _cover_image(self, item):
+        """A playing song's cover, for the Virtual iPod: from the iPod's artwork, or inside the file."""
+        from PySide6.QtGui import QImage
+
+        from synclassic.ipod import artwork as art
+        from synclassic.ipod import browse
+
+        try:
+            if item.cover and self.ipod is not None:
+                picture = browse.cover(self.ipod, item.cover)
+                if picture is not None:
+                    raw = picture.tobytes()
+                    return QImage(raw, picture.width, picture.height, picture.width * 3,
+                                  QImage.Format.Format_RGB888).copy()
+            data = art.embedded_cover(item.path)
+            return QImage.fromData(data) if data else None
+        except OSError:
+            return None
+
     def show_rewind(self) -> None:
         from synclassic.gui.rewind import RewindDialog
 
@@ -2186,6 +2226,7 @@ class MainWindow(QMainWindow):
         self.ipod = ipod
         self.ipod_contents = None
         self.on_ipod_keys = set()
+        self.ipod_graphic.set_contents(None)
         if ipod is not None and load_settings().sync_on_connect and not getattr(self, "_quitting", False):
             # Plugged in: Update & Sync by itself (it still asks before removing anything).
             QTimer.singleShot(1500, lambda: self.job is None and self.ipod is ipod and self.update_and_sync())

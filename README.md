@@ -255,6 +255,12 @@ a picture to share (1080×1350): top songs on an iPod screen, top artists, top a
 **Cover Flow**: the iPod's Albums page shows its covers as a grid or in Cover Flow (click,
 drag, scroll or use the arrow keys; the album's songs show underneath).
 
+**Virtual iPod**: the iPod on the iPod page works like the real one, with its menus built from
+your iPod's library (Music → Playlists / Artists / Albums / Songs / Genres, Podcasts, Shuffle
+Songs, Now Playing). Circle the click wheel with the mouse (or scroll, or use the arrow keys),
+click the center button (Return) to choose and MENU (Esc) to go back; the wheel's ⏯ ⏮ ⏭
+control playback, and songs play through the app.
+
 **Managing the iPod in the app.** Plug it in and it appears under DEVICES with Music, Albums,
 Artists, Genres and all its playlists. Right-click or drag, like iTunes:
 

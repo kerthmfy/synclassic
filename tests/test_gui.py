@@ -640,3 +640,63 @@ def test_sync_animation_shows_and_stops(app):
     assert not window._spin_timer.isActive() and window.ipod_graphic.sync_progress is None
     assert chime_file().stat().st_size > 50_000
     window.close()
+
+
+def test_virtual_ipod_menus_wheel_and_play(app, tmp_path):
+    import math
+
+    from PySide6.QtCore import QEvent, QPointF, QRectF, Qt
+    from PySide6.QtGui import QMouseEvent
+
+    from synclassic.gui.virtual_ipod import VirtualIPod
+    from synclassic.gui.widgets import ipod_geometry
+    from synclassic.ipod import browse
+    from synclassic.ipod.device import ipod_at
+    from tests.test_ipod_read import fake_ipod, load
+
+    contents = browse.read(ipod_at(fake_ipod(tmp_path, load("captured-album-index-36.b64"))))
+    ipod = VirtualIPod()
+    ipod.resize(240, 392)
+    ipod.set_contents(contents)
+    played = []
+    ipod.play_requested.connect(lambda ids, index: played.append((ids, index)))
+    assert [i.label for i in ipod.stack[-1].items][:1] == ["Music"]
+
+    _, center, radius, inner = ipod_geometry(QRectF(ipod.rect()).adjusted(10, 10, -10, -10))
+
+    def mouse(kind, point):
+        event_type = {"press": QEvent.Type.MouseButtonPress, "move": QEvent.Type.MouseMove,
+                      "release": QEvent.Type.MouseButtonRelease}[kind]
+        buttons = Qt.MouseButton.NoButton if kind == "release" else Qt.MouseButton.LeftButton
+        event = QMouseEvent(event_type, point, point, Qt.MouseButton.LeftButton, buttons, Qt.KeyboardModifier.NoModifier)
+        {"press": ipod.mousePressEvent, "move": ipod.mouseMoveEvent, "release": ipod.mouseReleaseEvent}[kind](event)
+
+    def click_center():
+        mouse("press", center)
+        mouse("release", center)
+
+    click_center()  # Music
+    assert ipod.stack[-1].title == "Music"
+    ring = (radius + inner) / 2
+    # Circle the wheel clockwise about 60 degrees: down 3 rows (Playlists -> Songs).
+    for degrees in range(-90, -25, 5):
+        point = QPointF(center.x() + ring * math.cos(math.radians(degrees)),
+                        center.y() + ring * math.sin(math.radians(degrees)))
+        mouse("press" if degrees == -90 else "move", point)
+    mouse("release", point)
+    assert ipod.stack[-1].items[ipod.stack[-1].selected].label == "Songs"
+    click_center()
+    assert ipod.stack[-1].title == "Songs"
+    ipod.scroll(2)
+    click_center()
+    ids, index = played[0]
+    assert index == 2 and len(ids) == len([s for s in contents.songs.values() if s.kind == "song"])
+    assert ipod.now_playing
+    top = QPointF(center.x(), center.y() - ring)  # MENU
+    mouse("press", top)
+    mouse("release", top)
+    assert not ipod.now_playing and ipod.stack[-1].title == "Songs"
+    ipod.back()
+    ipod.back()
+    assert ipod.stack[-1].title == contents.name
+    ipod.grab()

@@ -603,6 +603,20 @@ class IPodGraphic(QWidget):
         painter.restore()
 
 
+def ipod_geometry(area: QRectF) -> tuple[QRectF, QPointF, float, float]:
+    """Where paint_ipod puts the screen and the click wheel: (screen, wheel center, wheel radius,
+    center button radius)."""
+    h = min(area.height(), area.width() * 1.66)
+    w = h / 1.66
+    body = QRectF(area.center().x() - w / 2, area.center().y() - h / 2, w, h)
+    edge = max(1.6, w * 0.012)
+    front = body.adjusted(edge, edge, -edge, -edge)
+    screen = QRectF(front.left() + w * 0.09, front.top() + w * 0.11, w * 0.80, w * 0.62)
+    radius = w * 0.31
+    center = QPointF(front.center().x(), front.bottom() - w * 0.06 - radius)
+    return screen, center, radius, radius * 0.38
+
+
 def paint_ipod(painter: QPainter, area: QRectF, name: str, line: str, base_font: QFont, shadow: bool = True,
                display=None) -> None:
     """Draw a black 5.5G iPod (Video), as large as fits in `area`. `display(painter, screen rect)`
