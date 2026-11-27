@@ -607,6 +607,11 @@ def apply_plan(
     # 4. Remove songs nothing needs any more.
     removed = {song.id for song in plan.remove_songs} | {song.id for song in plan.podcasts.remove}
     editor.remove_songs(removed)
+    # Smart playlists Synclassic keeps: their songs refreshed (the iPod keeps them live after).
+    from synclassic.ipod import smart
+
+    if smart.chosen(state):
+        smart.apply(editor, db, state)
     editor.finish()
 
     # 5. Album art: written before the music database, which then links to it.

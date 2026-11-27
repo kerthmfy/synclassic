@@ -292,6 +292,10 @@ background" (every 3/6/12/24 hours, even with the app closed: a macOS LaunchAgen
 `synclassic update`; log in `~/Library/Logs/Synclassic-background.log`). Terminal:
 `synclassic background on --every 6`, `synclassic background off`. Only one update runs at a time.
 
+**Smart Playlists…** (iPod menu, or `synclassic ipod smart`): Recently Added, Recently Played,
+Top 25 Most Played, My Top Rated and Never Played, as real iPod smart playlists. The iPod keeps
+them up to date as you play, and every sync refreshes them.
+
 **Fix Album Art…** (iPod menu, File menu, or `synclassic ipod art`): finds albums whose cover
 is missing or small enough to look pixelated (under 300 px), on the iPod and among the songs
 on your Mac, and looks for sharp ones: the album's Spotify cover for songs Synclassic

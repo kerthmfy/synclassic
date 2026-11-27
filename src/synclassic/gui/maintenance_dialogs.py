@@ -307,3 +307,33 @@ class CleanupDialog(QDialog):
     def done(self, result: int) -> None:
         mark_closed(self)
         super().done(result)
+
+
+class SmartPlaylistsDialog(QDialog):
+    """Choose the iPod's smart playlists (kept up to date by the iPod and at every sync)."""
+
+    def __init__(self, current: set[str], parent=None):
+        from PySide6.QtWidgets import QCheckBox
+
+        from synclassic.ipod import smart
+
+        super().__init__(parent)
+        self.setWindowTitle("Smart Playlists")
+        layout = QVBoxLayout(self)
+        intro = QLabel("Smart playlists fill themselves, like they did with iTunes. The iPod keeps them up to date "
+                       "as you play, and Synclassic refreshes them at every sync.")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+        self.boxes = {}
+        for preset in smart.PRESETS:
+            box = QCheckBox(f"{preset.name} — {preset.description}")
+            box.setChecked(preset.key in current)
+            layout.addWidget(box)
+            self.boxes[preset.key] = box
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def chosen(self) -> set[str]:
+        return {key for key, box in self.boxes.items() if box.isChecked()}

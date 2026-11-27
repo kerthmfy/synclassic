@@ -436,6 +436,24 @@ def cmd_ipod(args) -> int:
     if action == "art":
         return _fix_art(ipod, args)
 
+    if action == "smart":
+        from synclassic.ipod import smart
+
+        if not args.names:
+            current = smart.chosen(ipod_sync.load_state(ipod))
+            for preset in smart.PRESETS:
+                say(f"  [{'x' if preset.key in current else ' '}] {preset.key:<16} {preset.name}: {preset.description}")
+            say("Choose: synclassic ipod smart recently_added top_25 ...   (none: synclassic ipod smart none)")
+            return 0
+        wanted = set() if args.names == ["none"] else set(args.names)
+        unknown = wanted - set(smart.BY_KEY)
+        if unknown:
+            say(f"Unknown smart playlist: {', '.join(sorted(unknown))}")
+            return 1
+        changes = smart.set_smart_playlists(ipod, wanted, say=say)
+        say("Smart playlists: " + (", ".join(changes) or "up to date"))
+        return 0
+
     if action == "soundcheck":
         from synclassic.ipod import soundcheck
 
@@ -790,7 +808,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_config)
 
     p = sub.add_parser("ipod", help="iPod: check (default, read-only), sync, restore a backup, eject, art (fix album art)")
-    p.add_argument("action", nargs="?", default="check", choices=["check", "sync", "restore", "eject", "art", "soundcheck"])
+    p.add_argument("action", nargs="?", default="check", choices=["check", "sync", "restore", "eject", "art", "soundcheck", "smart"])
+    p.add_argument("names", nargs="*", help="smart: which smart playlists to have")
     p.add_argument("backup", nargs="?", type=int, help="restore: backup number (see 'synclassic ipod restore')")
     p.add_argument("--path", help="the iPod's folder, if it isn't found automatically")
     p.add_argument("--dry-run", action="store_true", help="sync: only show what would change")

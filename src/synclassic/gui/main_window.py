@@ -187,6 +187,8 @@ class MainWindow(QMainWindow):
                                     "Fill in lyrics for songs that don't have them, on this Mac and on the iPod")
         self.info_fill_action = action("Fill In Genres && Years…", self.fill_in_info, None,
                                        "Look up missing genres and years for songs on this Mac and on the iPod")
+        self.smart_action = action("Smart Playlists…", self.choose_smart_playlists, None,
+                                   "Recently Added, Top 25 Most Played and more, kept up to date by the iPod")
         self.fix_art_action = action("Fix Album Art…", self.show_fix_art, None,
                                      "Find missing or pixelated covers on the iPod and put sharp ones on")
         self.scrobble_action = action("Scrobble to Last.fm", lambda: self.scrobble_now())
@@ -208,7 +210,7 @@ class MainWindow(QMainWindow):
                     self.fix_art_action, self.lyrics_action, self.info_fill_action, None, self.settings_action):
             file_menu.addSeparator() if act is None else file_menu.addAction(act)
         ipod_menu = bar.addMenu("iPod")
-        for act in (self.update_sync_action, self.sync_action, None, self.new_ipod_playlist_action,
+        for act in (self.update_sync_action, self.sync_action, None, self.new_ipod_playlist_action, self.smart_action,
                     self.import_ipod_playlist_action, self.info_action, None, self.scrobble_action, None,
                     self.backups_action, self.cleanup_action, self.fix_art_action, self.lyrics_action,
                     self.info_fill_action, self.soundcheck_action, self.ipod_action, None, self.eject_action):
@@ -1503,6 +1505,24 @@ class MainWindow(QMainWindow):
                 self._load_ipod_contents()
 
         self._run_job("Filling in genres and years…", work, finished, verb="Looking up")
+
+    def choose_smart_playlists(self) -> None:
+        from synclassic.gui.maintenance_dialogs import SmartPlaylistsDialog
+        from synclassic.ipod import smart
+        from synclassic.ipod.sync import load_state
+
+        ipod = self.ipod
+        if ipod is None:
+            QMessageBox.information(self, "No iPod", "Plug in your iPod first.")
+            return
+        current = set(smart.chosen(load_state(ipod)))
+        dialog = SmartPlaylistsDialog(current, self)
+        if not dialog.exec() or dialog.chosen() == current:
+            return
+        wanted = dialog.chosen()
+        self._ipod_edit("Updating smart playlists…",
+                        lambda ipod, backup: smart.set_smart_playlists(ipod, wanted, backup),
+                        done_message=lambda changes: "Smart playlists: " + (", ".join(changes) or "up to date"))
 
     def show_fix_art(self) -> None:
         from synclassic.gui.art_dialog import ArtFixDialog
