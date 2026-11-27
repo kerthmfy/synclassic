@@ -244,7 +244,8 @@ the first change of each session.
 - **Backups…**: every backup with its date and song count; **Restore** puts one back (the current
   library is backed up first, so a restore can be undone).
 - **Clean Up…**: song files on the iPod that its library doesn't list (add them back, or delete
-  them), and songs whose file is missing (remove them).
+  them), songs whose file is missing (remove them), and songs that are on the iPod more than
+  once (the best copy stays; playlists that had another copy get the kept one).
 - **Scrobble Now**: sends the plays your iPod logged to Last.fm (Settings → Last.fm → **Connect
   to Last.fm**, then approve in the browser; your password never goes through Synclassic).
   Synclassic's own Last.fm API key lives in `src/synclassic/lastfm_app.py`; anyone can use their

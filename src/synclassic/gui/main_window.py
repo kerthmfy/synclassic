@@ -2003,16 +2003,22 @@ class MainWindow(QMainWindow):
         def read(task):
             from synclassic.ipod import itunesdb
 
+            from synclassic.ipod.browse import _kind
+
             db = itunesdb.parse(ipod.database_path.read_bytes())
             songs = itunesdb.songs(db)
-            audio = sum(s.size for s in songs if s.media_type in (0, 1))
+            sizes = {"song": 0, "video": 0, "podcast": 0, "audiobook": 0, "other": 0}
+            for song in songs:
+                sizes[_kind(song.media_type)] += song.size
             playlists = [p for p in itunesdb.playlists(db, 2) if not p.is_master]
-            return len(songs), audio, len(playlists)
+            return len(songs), sizes, len(playlists)
 
         def show(result):
-            count, audio, playlists = result
+            count, sizes, playlists = result
             self._render_ipod_details(self._ipod_rows + [("Songs", f"{count:,}"), ("Playlists", str(playlists))])
-            self.capacity.set_values(audio, max(0, total - free - audio), free)
+            media = sizes["song"] + sizes["other"] + sizes["video"] + sizes["podcast"] + sizes["audiobook"]
+            self.capacity.set_values(sizes["song"] + sizes["other"], max(0, total - free - media), free,
+                                     video=sizes["video"], podcasts=sizes["podcast"], audiobooks=sizes["audiobook"])
             self.ipod_graphic.set_screen(display, f"{count:,} songs\n{playlists} playlists")
 
         run_in_background(self, read, show, lambda error: self.ipod_graphic.set_screen(ipod.name, "Can't read music"))

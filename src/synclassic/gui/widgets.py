@@ -615,15 +615,20 @@ def _transport(painter: QPainter, c: QPointF, r: float) -> None:
 class CapacityBar(QWidget):
     """iTunes-style storage bar: coloured glossy segments with a legend underneath."""
 
-    SEGMENTS = (("Audio", "#4f97e8", "#2b6ec9"), ("Other", "#f3c94f", "#d79f12"), ("Free", "#f7f7f7", "#cfcfcf"))
+    SEGMENTS = (("Audio", "#4f97e8", "#2b6ec9"), ("Video", "#a77de0", "#7a4fc0"), ("Podcasts", "#7cc45a", "#4e9a2e"),
+                ("Audiobooks", "#f08a4b", "#cf5f1c"), ("Other", "#f3c94f", "#d79f12"), ("Free", "#f7f7f7", "#cfcfcf"))
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.values: list[tuple[str, int]] = []
         self.setMinimumHeight(48)
 
-    def set_values(self, audio: int, other: int, free: int) -> None:
-        self.values = [("Audio", audio), ("Other", other), ("Free", free)]
+    def set_values(self, audio: int, other: int, free: int, video: int = 0, podcasts: int = 0,
+                   audiobooks: int = 0) -> None:
+        values = [("Audio", audio), ("Video", video), ("Podcasts", podcasts), ("Audiobooks", audiobooks),
+                  ("Other", other), ("Free", free)]
+        # Empty kinds are left out of the bar and its legend (Audio, Other and Free always show).
+        self.values = [(name, value) for name, value in values if value or name in ("Audio", "Other", "Free")]
         self.update()
 
     def paintEvent(self, event):  # noqa: N802

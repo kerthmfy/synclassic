@@ -260,3 +260,42 @@ def test_deleting_a_synced_playlist_on_request(ipod):
     manage.delete_playlist(ipod, pid, synced_too=True)
     assert titles(ipod, "OUT OF MY MIND") is None
     assert sync.load_state(ipod)["playlists"] == {}  # forgotten: a sync won't try to update it
+
+
+def test_duplicates_are_found_and_removed_without_losing_playlist_songs(tmp_path):
+    from synclassic.ipod import itunesdb, manage
+    from synclassic.ipod.check import check
+    from synclassic.ipod.device import ipod_at
+    from synclassic.ipod.edit import Editor, NewSong
+    from tests.test_ipod_read import fake_ipod, load
+
+    root = fake_ipod(tmp_path, load("captured-album-index-36.b64"))
+    db = itunesdb.parse((root / "iPod_Control/iTunes/iTunesDB").read_bytes())
+    editor = Editor(db)
+    ids = {}
+    for name, bitrate in (("LOW1", 128), ("HIGH", 256), ("LOW2", 96)):
+        song_id, _ = editor.add_song(NewSong(location=f":iPod_Control:Music:F00:{name}.m4a", filetype="m4a", size=100,
+                                             length_ms=200_000 + len(ids) * 1000, bitrate=bitrate, sample_rate=44100,
+                                             vbr=False, title="Twice (Remastered)" if name == "LOW2" else "Twice",
+                                             artist="Band"))
+        (root / f"iPod_Control/Music/F00/{name}.m4a").write_bytes(b"x" * 100)
+        ids[name] = song_id
+    songs = {s.id: s for s in itunesdb.songs(db)}
+    mix = editor.create_playlist("Mix")
+    editor.set_playlist_songs(mix, [(ids["LOW1"], songs[ids["LOW1"]].dbid), (ids["LOW2"], songs[ids["LOW2"]].dbid)])
+    editor.finish()
+    (root / "iPod_Control/iTunes/iTunesDB").write_bytes(itunesdb.serialize(db))
+    ipod = ipod_at(root)
+
+    report = manage.find_cleanup(ipod)
+    (group,) = report.duplicates
+    assert group.keep.id == ids["HIGH"] and {s.id for s in group.extra} == {ids["LOW1"], ids["LOW2"]}
+    assert report.duplicate_bytes == 200
+    assert manage.remove_duplicates(ipod, report.duplicates) == 2
+    db = itunesdb.parse(ipod.database_path.read_bytes())
+    titles = {s.id: s.title for s in itunesdb.songs(db)}
+    mix_view = next(p for p in itunesdb.playlists(db, 2) if p.name == "Mix")
+    assert mix_view.track_ids == [ids["HIGH"]]  # both copies were in it: one entry, the kept copy
+    assert ids["LOW1"] not in titles and not (root / "iPod_Control/Music/F00/LOW1.m4a").exists()
+    assert manage.find_cleanup(ipod).duplicates == []
+    assert check(ipod).safe_to_manage

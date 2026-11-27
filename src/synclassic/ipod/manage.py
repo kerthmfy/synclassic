@@ -349,6 +349,47 @@ class CleanupReport:
     leftovers: list[pathlib.Path] = field(default_factory=list)  # files the library doesn't list
     leftover_bytes: int = 0
     missing: list[tuple[int, str]] = field(default_factory=list)  # (song id, "Artist - Title") without a file
+    duplicates: list["Duplicate"] = field(default_factory=list)
+
+    @property
+    def duplicate_bytes(self) -> int:
+        return sum(s.size for group in self.duplicates for s in group.extra)
+
+
+@dataclass
+class Duplicate:
+    keep: itunesdb.SongView  # the best copy
+    extra: list[itunesdb.SongView]  # the others
+
+    @property
+    def name(self) -> str:
+        return f"{self.keep.artist} - {self.keep.title}" if self.keep.artist else self.keep.title
+
+
+def _best_copy_key(song: itunesdb.SongView) -> tuple:
+    mhit = song.chunk
+    return (mhit.u32(0x38), mhit.u8(0xA4) == 1, song.play_count, song.rating, -song.id)
+
+
+def find_duplicates(songs: list[itunesdb.SongView]) -> list[Duplicate]:
+    """The same song more than once (same artist, title and length within 3 s); music only."""
+    from synclassic.textnorm import core_title, normalize
+
+    groups: dict[tuple[str, str], list[itunesdb.SongView]] = {}
+    for song in songs:
+        if song.media_type in (0, 1) and song.title and song.location:
+            groups.setdefault((normalize(song.artist), core_title(song.title)), []).append(song)
+    found = []
+    for candidates in groups.values():
+        while len(candidates) > 1:
+            first = candidates[0]
+            same = [s for s in candidates if abs(s.length_ms - first.length_ms) <= 3000]
+            candidates = [s for s in candidates if s not in same]
+            if len(same) > 1:
+                same.sort(key=_best_copy_key, reverse=True)
+                found.append(Duplicate(same[0], same[1:]))
+    found.sort(key=lambda d: d.name.casefold())
+    return found
 
 
 def find_cleanup(ipod: IPod) -> CleanupReport:
@@ -366,7 +407,40 @@ def find_cleanup(ipod: IPod) -> CleanupReport:
     for song in songs:
         if song.location and not (ipod.root / song.relative_path).is_file():
             report.missing.append((song.id, f"{song.artist} - {song.title}" if song.artist else song.title))
+    report.duplicates = find_duplicates([s for s in songs if (ipod.root / s.relative_path).is_file()] if songs else [])
     return report
+
+
+def remove_duplicates(ipod: IPod, groups: list[Duplicate], make_backup: bool = True) -> int:
+    """Delete the extra copies. Playlists that had an extra copy get the kept one instead, so no
+    playlist loses a song. Returns how many copies were deleted."""
+
+    def action(session: EditSession) -> int:
+        replace = {extra.id: group.keep for group in groups for extra in group.extra}
+        dbid_for = {extra.dbid: group.keep.dbid for group in groups for extra in group.extra}
+        for view in itunesdb.playlists(session.db, 2):
+            if view.is_master or view.is_smart or view.is_podcasts or not set(view.track_ids) & set(replace):
+                continue
+            entries, seen = [], set()
+            songs = session.songs()
+            for song_id in view.track_ids:
+                target = replace.get(song_id)
+                song_id = target.id if target is not None else song_id
+                if song_id in seen and target is not None:
+                    continue  # both copies were in this playlist: keep one entry
+                seen.add(song_id)
+                if song_id in songs:
+                    entries.append((song_id, songs[song_id].dbid))
+            session.editor.set_playlist_songs(view.chunk.u64(0x1C), entries)
+        # Synclassic's own records point at the kept copy, so syncs don't copy the song again.
+        for key, entry in session.state["tracks"].items():
+            dbid = int(entry["dbid"], 16)
+            if dbid in dbid_for:
+                session.state["tracks"][key] = {"dbid": f"{dbid_for[dbid]:016x}", "added": False}
+                session.state_changed = True
+        return session.delete_songs(set(replace))
+
+    return _run(ipod, make_backup, action)
 
 
 def add_leftovers(ipod: IPod, paths: list[pathlib.Path], make_backup: bool = True, say: Say = _quiet) -> int:

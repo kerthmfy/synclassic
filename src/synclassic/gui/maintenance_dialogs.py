@@ -239,10 +239,28 @@ class CleanupDialog(QDialog):
         missing.addLayout(row)
         layout.addWidget(self.missing_box)
 
+        self.dupes_box = QGroupBox("The same song more than once")
+        dupes = QVBoxLayout(self.dupes_box)
+        self.dupes_text = QLabel("")
+        self.dupes_text.setWordWrap(True)
+        dupes.addWidget(self.dupes_text)
+        self.dupes_list = QTreeWidget()
+        self.dupes_list.setHeaderHidden(True)
+        self.dupes_list.setRootIsDecorated(False)
+        self.dupes_list.setMaximumHeight(120)
+        dupes.addWidget(self.dupes_list)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        self.dupes_button = QPushButton("Remove Extra Copies")
+        self.dupes_button.clicked.connect(self._remove_duplicates)
+        row.addWidget(self.dupes_button)
+        dupes.addLayout(row)
+        layout.addWidget(self.dupes_box)
+
         close = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         close.rejected.connect(self.reject)
         layout.addWidget(close)
-        for box in (self.left_box, self.missing_box):
+        for box in (self.left_box, self.missing_box, self.dupes_box):
             box.hide()
         self.load()
 
@@ -254,8 +272,9 @@ class CleanupDialog(QDialog):
 
     def _show(self, report) -> None:
         self.report = report
-        if not report.leftovers and not report.missing:
-            self.status.setText("✓ Nothing to clean up: every file on the iPod is in its library, and every song has its file.")
+        if not report.leftovers and not report.missing and not report.duplicates:
+            self.status.setText("✓ Nothing to clean up: every file on the iPod is in its library, every song has its "
+                                "file, and no song is there twice.")
             return
         self.status.setText("")
         if report.leftovers:
@@ -274,6 +293,17 @@ class CleanupDialog(QDialog):
             names = ", ".join(name for _, name in report.missing[:5]) + ("…" if len(report.missing) > 5 else "")
             count = len(report.missing)
             self.missing_text.setText(f"{count} song{'s are' if count != 1 else ' is'} listed but the file is gone: {names}")
+        if report.duplicates:
+            self.dupes_box.show()
+            extra = sum(len(g.extra) for g in report.duplicates)
+            self.dupes_text.setText(
+                f"{len(report.duplicates)} song{'s are' if len(report.duplicates) != 1 else ' is'} on the iPod more than "
+                f"once ({extra} extra cop{'ies' if extra != 1 else 'y'}, {_size(report.duplicate_bytes)}). The best copy "
+                "is kept (highest quality, with album art, most played); playlists that had another copy get the kept "
+                "one instead.")
+            self.dupes_list.clear()
+            for group in report.duplicates[:200]:
+                self.dupes_list.addTopLevelItem(QTreeWidgetItem([f"{group.name}  ({len(group.extra) + 1} copies)"]))
 
     def _add(self) -> None:
         from synclassic.ipod import manage
@@ -303,6 +333,20 @@ class CleanupDialog(QDialog):
                                 lambda ipod, backup: manage.remove_missing(ipod, ids, backup),
                                 done_message=lambda n: f"Removed {n} songs whose file was missing")
         self.accept()
+
+    def _remove_duplicates(self) -> None:
+        from synclassic.ipod import manage
+
+        groups = list(self.report.duplicates)
+        extra = sum(len(g.extra) for g in groups)
+        answer = QMessageBox.question(self, "Remove Extra Copies",
+                                      f"Delete {extra} extra cop{'ies' if extra != 1 else 'y'} of songs that are on the "
+                                      "iPod more than once? The best copy of each stays.")
+        if answer == QMessageBox.StandardButton.Yes:
+            self.window_._ipod_edit("Removing extra copies…",
+                                    lambda ipod, backup: manage.remove_duplicates(ipod, groups, backup),
+                                    done_message=lambda n: f"Removed {n} extra copies")
+            self.accept()
 
     def done(self, result: int) -> None:
         mark_closed(self)
