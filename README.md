@@ -261,6 +261,12 @@ Safety: the iPod's database is backed up before every sync (the last 10 are kept
 synclassic ipod restore
 ```
 
+**Sound Check**: Synclassic measures how loud each song is (once, right after downloading) and
+gives the iPod its Sound Check value at sync, so quiet and loud uploads play at a similar
+volume. Turn it on on the iPod: Settings → Sound Check. Songs Synclassic didn't add get it with
+iPod → **Sound Check for Other Songs…** (or `synclassic ipod soundcheck`). Turn measuring off in
+Settings (or `synclassic config sound_check off`).
+
 **Fix Album Art…** (iPod menu, File menu, or `synclassic ipod art`): finds albums whose cover
 is missing or small enough to look pixelated (under 300 px), on the iPod and among the songs
 on your Mac, and looks for sharp ones: the album's Spotify cover for songs Synclassic

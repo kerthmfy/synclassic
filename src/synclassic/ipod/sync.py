@@ -112,6 +112,8 @@ class Plan:
     free_bytes: int = 0
     play_counts_pending: bool = False
     art_backfill: list[tuple[int, LibraryTrack]] = field(default_factory=list)  # (dbid, item): added songs without art
+    soundcheck: list[tuple[int, LibraryTrack]] = field(default_factory=list)  # (dbid, item): on the iPod, no Sound Check
+    to_measure: int = 0  # songs whose loudness isn't known yet
     artwork_ok: bool = False  # the iPod's artwork database can be updated
     podcasts: podcast_sync.PodcastPlan = field(default_factory=podcast_sync.PodcastPlan)
 
@@ -120,7 +122,7 @@ class Plan:
         return bool(
             self.copy or self.remove_songs or self.remove_playlists or self.play_counts_pending
             or any(not p.unchanged and p.action != "wait" for p in self.playlists)
-            or (self.artwork_ok and bool(self.art_backfill)) or self.podcasts.has_changes
+            or (self.artwork_ok and bool(self.art_backfill)) or self.podcasts.has_changes or bool(self.soundcheck)
         )
 
     @property
@@ -170,6 +172,11 @@ class Plan:
             lines.append(f"  Add album art for up to {art} songs" + (f" ({len(self.art_backfill)} added earlier without art)" if self.art_backfill else ""))
         elif art:
             lines.append("  ⚠ Album art can't be added on this iPod (its artwork database couldn't be read safely)")
+        if self.soundcheck:
+            lines.append(f"  Sound Check for {len(self.soundcheck)} songs already on the iPod")
+        if self.to_measure:
+            lines.append(f"  Measure the loudness of {self.to_measure} songs for Sound Check (once; about "
+                         f"{max(1, round(self.to_measure * 0.4 / 60))} min)")
         lines += self.podcasts.summary()
         if self.play_counts_pending:
             lines.append("  Save plays, skips and ratings from the iPod")
@@ -311,6 +318,21 @@ def make_plan(library: Library, ipod: IPod, db: itunesdb.Chunk | None = None) ->
             if (value.get("added") and song is not None and item is not None and song.chunk.u8(0xA4) != 1
                     and item.has_file and song.dbid not in {s.dbid for s in plan.remove_songs}):
                 plan.art_backfill.append((song.dbid, item))
+    # Sound Check: songs from the library on the iPod without a value yet.
+    from synclassic.config import load_settings
+
+    if load_settings().sound_check:
+        from synclassic.loudness import LoudnessCache
+
+        cache = LoudnessCache(library)
+        removing = {s.dbid for s in plan.remove_songs}
+        for key, dbid in plan.reuse.items():
+            song, item = by_dbid.get(dbid), wanted.get(key)
+            if (song is not None and item is not None and item.has_file and dbid not in removing
+                    and song.chunk.u32(0x4C) == 0 and len(song.chunk.header) > 0x50):
+                plan.soundcheck.append((dbid, item))
+        paths = [pathlib.Path(i.file_path) for _, i in plan.soundcheck] + [pathlib.Path(i.file_path) for i in plan.copy]  # type: ignore[arg-type]
+        plan.to_measure = sum(1 for p in paths if not cache.known(p)[0])
     plan.podcasts = podcast_sync.plan(library, ipod, db, state)
     return plan
 
@@ -470,6 +492,10 @@ def apply_plan(
     # 2. Copy new songs (verified) before touching the database.
     folders = _music_folders(ipod)
     editor = Editor(db)
+    from synclassic.config import load_settings
+    from synclassic.loudness import LoudnessCache
+
+    loudness = LoudnessCache(library) if load_settings().sound_check else None
     new_dbids: dict[str, int] = {}
     copied_files: list[pathlib.Path] = []
     try:
@@ -488,7 +514,10 @@ def apply_plan(
             os.replace(tmp, target)
             copied_files.append(target)
             location = ":" + target.relative_to(ipod.root).as_posix().replace("/", ":")
-            _, dbid = editor.add_song(song_info(target, item, location))
+            info = song_info(target, item, location)
+            if loudness is not None:
+                info.soundcheck = loudness.soundcheck(source)
+            _, dbid = editor.add_song(info)
             new_dbids[item.key] = dbid
         new_episodes: dict[str, int] = {}
         episode_files: dict[int, pathlib.Path] = {}
@@ -514,6 +543,19 @@ def apply_plan(
         for path in copied_files:  # leave no orphan files behind
             path.unlink(missing_ok=True)
         raise
+
+    # Sound Check for songs that were already on the iPod.
+    if loudness is not None and plan.soundcheck:
+        mhits = {s.dbid: s.chunk for s in itunesdb.songs(db)}
+        for number, (dbid, item) in enumerate(plan.soundcheck, start=1):
+            if should_stop and should_stop():
+                break  # the rest get it next time
+            if progress:
+                progress(number, len(plan.soundcheck), f"Sound Check: {item.track.display()}")
+            value = loudness.soundcheck(pathlib.Path(item.file_path))  # type: ignore[arg-type]
+            if value and dbid in mhits:
+                mhits[dbid].set_u32(0x4C, value)
+        say(f"Sound Check set for {len(plan.soundcheck)} songs already on the iPod.")
 
     # 3. Playlists.
     songs_now = {s.dbid: s.id for s in itunesdb.songs(db)}

@@ -50,6 +50,8 @@ class Settings:
     folder_layout: str = "artist"
     # Send the iPod's plays to Last.fm after each sync (when connected).
     scrobble_after_sync: bool = True
+    # Measure each song's loudness so the iPod's Sound Check plays them at a similar volume.
+    sound_check: bool = True
 
     @property
     def music_path(self) -> pathlib.Path:
@@ -65,6 +67,7 @@ SETTING_HELP = {
     "download_pause": "Seconds to wait between downloads",
     "full_playlist_reader": "on/off: read public playlists over 100 songs from Spotify's web page",
     "folder_layout": "artist (Artist/Album/Song) or playlist (one folder per playlist)",
+    "sound_check": "on/off: measure loudness so the iPod's Sound Check evens out volume",
 }
 
 
@@ -117,11 +120,11 @@ def set_setting(settings: Settings, key: str, value: str) -> None:
         value = value.lower()
         if value not in ("artist", "playlist"):
             raise ValueError("folder_layout must be artist or playlist")
-    elif key == "full_playlist_reader":
+    elif key in ("full_playlist_reader", "sound_check"):
         lowered = value.lower()
         if lowered not in ("on", "off", "true", "false", "yes", "no", "1", "0"):
-            raise ValueError("full_playlist_reader must be on or off")
-        settings.full_playlist_reader = lowered in ("on", "true", "yes", "1")
+            raise ValueError(f"{key} must be on or off")
+        setattr(settings, key, lowered in ("on", "true", "yes", "1"))
         return
     elif key == "music_dir" and value:
         value = str(pathlib.Path(value).expanduser().resolve())

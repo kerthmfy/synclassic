@@ -180,6 +180,8 @@ class MainWindow(QMainWindow):
         self.info_action = action("Get Info", self.get_info, QKeySequence("Ctrl+I"))
         self.backups_action = action("Backups…", self.show_backups)
         self.cleanup_action = action("Clean Up…", self.show_cleanup)
+        self.soundcheck_action = action("Sound Check for Other Songs…", self.soundcheck_other_songs, None,
+                                        "Measure songs Synclassic didn't add so Sound Check evens them out too")
         self.fix_art_action = action("Fix Album Art…", self.show_fix_art, None,
                                      "Find missing or pixelated covers on the iPod and put sharp ones on")
         self.scrobble_action = action("Scrobble to Last.fm", lambda: self.scrobble_now())
@@ -203,7 +205,8 @@ class MainWindow(QMainWindow):
         ipod_menu = bar.addMenu("iPod")
         for act in (self.update_sync_action, self.sync_action, None, self.new_ipod_playlist_action,
                     self.import_ipod_playlist_action, self.info_action, None, self.scrobble_action, None,
-                    self.backups_action, self.cleanup_action, self.fix_art_action, self.ipod_action, None, self.eject_action):
+                    self.backups_action, self.cleanup_action, self.fix_art_action, self.soundcheck_action,
+                    self.ipod_action, None, self.eject_action):
             ipod_menu.addSeparator() if act is None else ipod_menu.addAction(act)
         controls = bar.addMenu("Controls")
         for act in (self.play_action, self.next_action, self.previous_action, None, self.shuffle_action, self.repeat_action):
@@ -1334,6 +1337,40 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "No iPod", "Plug in your iPod first.")
             return
         CleanupDialog(self, self.ipod).exec()
+
+    def soundcheck_other_songs(self) -> None:
+        from synclassic.ipod import soundcheck
+
+        ipod = self.ipod
+        if ipod is None:
+            QMessageBox.information(self, "No iPod", "Plug in your iPod first.")
+            return
+        if self.job is not None:
+            QMessageBox.information(self, "Busy", "Wait for the current task to finish first.")
+            return
+        count = len(soundcheck.missing(ipod))
+        if not count:
+            QMessageBox.information(self, "Sound Check", "Every song on the iPod already has Sound Check.")
+            return
+        minutes = max(1, round(count * 0.5 / 60))
+        answer = QMessageBox.question(
+            self, "Sound Check",
+            f"Measure the loudness of {count} songs on the iPod that don't have Sound Check yet? This reads each "
+            f"file once (about {minutes} min); you can stop any time and keep what was measured.\n\n"
+            "Turn Sound Check on on the iPod too: Settings → Sound Check.")
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        make_backup = ipod.root not in self._backed_up
+
+        def work(task):
+            done = soundcheck.apply(ipod, make_backup, task.say, task.progress.emit, task.should_stop)
+            return {"summary": f"Sound Check set for {done} songs."}
+
+        def finished(result):
+            self._backed_up.add(ipod.root)
+            self._load_ipod_contents()
+
+        self._run_job("Measuring loudness…", work, finished, verb="Measuring")
 
     def show_fix_art(self) -> None:
         from synclassic.gui.art_dialog import ArtFixDialog

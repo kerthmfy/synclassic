@@ -397,6 +397,18 @@ def cmd_ipod(args) -> int:
     if action == "art":
         return _fix_art(ipod, args)
 
+    if action == "soundcheck":
+        from synclassic.ipod import soundcheck
+
+        count = len(soundcheck.missing(ipod))
+        if not count:
+            say("Every song on the iPod has Sound Check.")
+            return 0
+        say(f"Measuring {count} songs Synclassic didn't add (Ctrl+C keeps nothing; let it finish)…")
+        done = soundcheck.apply(ipod, say=say, progress=lambda n, total, text: say(f"  [{n}/{total}] {text}"))
+        say(f"Sound Check set for {done} songs. Turn it on on the iPod: Settings → Sound Check.")
+        return 0
+
     if action == "restore":
         backups = ipod_sync.list_backups(ipod)
         if not backups:
@@ -693,7 +705,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_config)
 
     p = sub.add_parser("ipod", help="iPod: check (default, read-only), sync, restore a backup, eject, art (fix album art)")
-    p.add_argument("action", nargs="?", default="check", choices=["check", "sync", "restore", "eject", "art"])
+    p.add_argument("action", nargs="?", default="check", choices=["check", "sync", "restore", "eject", "art", "soundcheck"])
     p.add_argument("backup", nargs="?", type=int, help="restore: backup number (see 'synclassic ipod restore')")
     p.add_argument("--path", help="the iPod's folder, if it isn't found automatically")
     p.add_argument("--dry-run", action="store_true", help="sync: only show what would change")

@@ -70,6 +70,7 @@ class NewSong:
     description: str = ""
     category: str = ""
     released_unix: int = 0
+    soundcheck: int = 0  # the iPod's Sound Check value (0 = unknown)
 
 
 PODCAST_PLAYLIST_FLAG = 0x01  # mhyp +0x2A bit 0: the Podcasts playlist
@@ -192,6 +193,7 @@ class Editor:
         mhit.set_u32(0x34, song.year)
         mhit.set_u32(0x38, song.bitrate)
         mhit.set_u32(0x3C, (song.sample_rate & 0xFFFF) << 16)
+        mhit.set_u32(0x4C, song.soundcheck)
         mhit.set_u32(0x5C, song.disc_number)
         mhit.set_u32(0x68, now)
         mhit.set_u64(0x70, dbid)

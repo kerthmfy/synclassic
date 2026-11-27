@@ -230,6 +230,14 @@ def save_candidate(
         if first:
             library.set_placement(item.id, first.id, str(download.path))
 
+    if settings.sound_check:  # measured now, so syncing doesn't have to
+        from synclassic.loudness import LoudnessCache, LoudnessError
+
+        try:
+            LoudnessCache(library).get(download.path)
+        except (LoudnessError, OSError) as error:
+            say(f"    (couldn't measure loudness: {error})")
+
     status = "review" if (result.status == "review" and not manual) else "downloaded"
     library.update_track(
         item.id, track=item.track, status=status, video_id=cand.video_id, match_score=result.score,

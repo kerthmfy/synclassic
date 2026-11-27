@@ -108,6 +108,11 @@ class SettingsDialog(QDialog):
         self.pause.setSuffix(" s")
         self.pause.setValue(self.settings.download_pause)
         form.addRow("Pause between downloads", self.pause)
+
+        self.sound_check = QCheckBox("Sound Check: measure each song's loudness so the iPod plays them evenly")
+        self.sound_check.setChecked(self.settings.sound_check)
+        self.sound_check.setToolTip("Turn Sound Check on on the iPod too: Settings → Sound Check.")
+        form.addRow("", self.sound_check)
         self.full_reader = QCheckBox("Read playlists over 100 songs in full from Spotify's web page")
         self.full_reader.setChecked(self.settings.full_playlist_reader)
         self.full_reader.setToolTip(
@@ -299,6 +304,7 @@ class SettingsDialog(QDialog):
         self.settings.cookies_from_browser = self.cookies.currentData()
         self.settings.download_pause = float(self.pause.value())
         self.settings.full_playlist_reader = self.full_reader.isChecked()
+        self.settings.sound_check = self.sound_check.isChecked()
         self.settings.folder_layout = self.layout_choice.currentData()
         self.settings.scrobble_after_sync = self.scrobble_after.isChecked()
         from synclassic import lastfm
