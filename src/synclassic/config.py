@@ -48,6 +48,8 @@ class Settings:
     full_playlist_reader: bool = True
     # "artist": Music/Artist/Album/Song.m4a   "playlist": <Playlist>/Artist - Song.m4a
     folder_layout: str = "artist"
+    # Send the iPod's plays to Last.fm after each sync (when connected).
+    scrobble_after_sync: bool = True
 
     @property
     def music_path(self) -> pathlib.Path:

@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QTabWidget,
     QVBoxLayout,
 )
 
@@ -52,6 +53,8 @@ class SettingsDialog(QDialog):
         self.setMinimumWidth(680)
         self.settings: Settings = load_settings()
         layout = QVBoxLayout(self)
+        self.tabs = QTabWidget()
+        layout.addWidget(self.tabs)
 
         # --- music ---
         music = QGroupBox("Music")
@@ -111,7 +114,7 @@ class SettingsDialog(QDialog):
             "This opens Spotify's page in a small window and scrolls through it to read every song."
         )
         form.addRow("", self.full_reader)
-        layout.addWidget(music)
+        self.tabs.addTab(music, "General")
 
         # --- spotify ---
         spotify = QGroupBox("Spotify login (for Liked Songs and playlists over 100 songs)")
@@ -145,7 +148,47 @@ class SettingsDialog(QDialog):
         login_row.addWidget(self.logout_button)
         login_row.addStretch(1)
         box.addLayout(login_row)
-        layout.addWidget(spotify)
+        self.tabs.addTab(spotify, "Spotify")
+
+        # --- last.fm ---
+        from synclassic import lastfm
+
+        saved = lastfm.load_credentials()
+        lastfm_box = QGroupBox("Last.fm (scrobble what you play on your iPod)")
+        lbox = QVBoxLayout(lastfm_box)
+        self.lastfm_status = QLabel("")
+        lbox.addWidget(self.lastfm_status)
+        lsteps = QLabel(
+            f"1. <a href='{lastfm.CREATE_ACCOUNT_PAGE}'>Create a Last.fm API account</a> (any name; leave the "
+            "callback URL empty).<br>2. Paste its <b>API key</b> and <b>shared secret</b> here and click Connect."
+        )
+        lsteps.setTextFormat(Qt.TextFormat.RichText)
+        lsteps.setOpenExternalLinks(True)
+        lsteps.setWordWrap(True)
+        lbox.addWidget(lsteps)
+        lform = QFormLayout()
+        self.lastfm_key = QLineEdit(saved.get("api_key", ""))
+        self.lastfm_key.setPlaceholderText("API key")
+        self.lastfm_secret = QLineEdit(saved.get("secret", ""))
+        self.lastfm_secret.setPlaceholderText("Shared secret")
+        self.lastfm_secret.setEchoMode(QLineEdit.EchoMode.Password)
+        lform.addRow("API key", self.lastfm_key)
+        lform.addRow("Shared secret", self.lastfm_secret)
+        lbox.addLayout(lform)
+        lrow = QHBoxLayout()
+        self.lastfm_connect = QPushButton("Connect to Last.fm")
+        self.lastfm_connect.clicked.connect(self._lastfm_connect)
+        self.lastfm_disconnect = QPushButton("Disconnect")
+        self.lastfm_disconnect.clicked.connect(self._lastfm_disconnect)
+        lrow.addWidget(self.lastfm_connect)
+        lrow.addWidget(self.lastfm_disconnect)
+        lrow.addStretch(1)
+        lbox.addLayout(lrow)
+        self.scrobble_after = QCheckBox("Scrobble automatically after each sync")
+        self.scrobble_after.setChecked(self.settings.scrobble_after_sync)
+        lbox.addWidget(self.scrobble_after)
+        self.tabs.addTab(lastfm_box, "Last.fm")
+        self._show_lastfm()
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self._save)
@@ -153,6 +196,41 @@ class SettingsDialog(QDialog):
         layout.addWidget(buttons)
 
         self._refresh_account()
+
+    def _show_lastfm(self) -> None:
+        from synclassic import lastfm
+
+        user = lastfm.connected_user()
+        self.lastfm_status.setText(f"✓ Connected as <b>{user}</b>" if user else "Not connected.")
+        self.lastfm_disconnect.setEnabled(bool(user))
+
+    def _lastfm_connect(self) -> None:
+        import webbrowser
+
+        from synclassic import lastfm
+
+        key, secret = self.lastfm_key.text().strip(), self.lastfm_secret.text().strip()
+        if not key or not secret:
+            QMessageBox.information(self, "Last.fm", "Paste your Last.fm API key and shared secret first.")
+            return
+        self.lastfm_connect.setEnabled(False)
+        self.lastfm_status.setText("Approve Synclassic on the Last.fm page that just opened…")
+
+        def done(user):
+            self.lastfm_connect.setEnabled(True)
+            self._show_lastfm()
+
+        def failed(error):
+            self.lastfm_connect.setEnabled(True)
+            self.lastfm_status.setText(f"Couldn't connect: {error}")
+
+        run_in_background(self, lambda task: lastfm.Client(key, secret).connect(webbrowser.open), done, failed)
+
+    def _lastfm_disconnect(self) -> None:
+        from synclassic import lastfm
+
+        lastfm.disconnect()
+        self._show_lastfm()
 
     def _format_changed(self) -> None:
         self.mp3_quality.setEnabled(self.format.currentData() == "mp3")
@@ -206,6 +284,14 @@ class SettingsDialog(QDialog):
         self.settings.download_pause = float(self.pause.value())
         self.settings.full_playlist_reader = self.full_reader.isChecked()
         self.settings.folder_layout = self.layout_choice.currentData()
+        self.settings.scrobble_after_sync = self.scrobble_after.isChecked()
+        from synclassic import lastfm
+
+        key, secret = self.lastfm_key.text().strip(), self.lastfm_secret.text().strip()
+        credentials = lastfm.load_credentials()
+        if (key, secret) != (credentials.get("api_key", ""), credentials.get("secret", "")):
+            # A different API account: keep the new key/secret; the old connection no longer applies.
+            lastfm.save_credentials({"api_key": key, "secret": secret})
         self.settings.spotify_client_id = self.client_id.text().strip() or self.settings.spotify_client_id
         save_settings(self.settings)
         self.accept()

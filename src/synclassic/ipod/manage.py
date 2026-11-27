@@ -25,6 +25,7 @@ from synclassic.ipod.device import IPod
 from synclassic.ipod.edit import Editor, NewSong
 from synclassic.ipod.sync import (
     SUPPORTED,
+    _queue_scrobbles,
     _match_key,
     _music_folders,
     _new_ipod_path,
@@ -71,7 +72,9 @@ class EditSession:
     def _merge_device_changes(self) -> None:
         if self.counts_file is not None and self.counts_file.is_file():
             try:
-                playcounts.merge_play_counts(self.db, playcounts.parse_play_counts(self.counts_file.read_bytes()))
+                entries = playcounts.parse_play_counts(self.counts_file.read_bytes())
+                _queue_scrobbles(self.db, entries, self.say)
+                playcounts.merge_play_counts(self.db, entries)
             except ValueError:
                 self.counts_file = None  # unreadable: leave it alone
         songs = itunesdb.songs(self.db)

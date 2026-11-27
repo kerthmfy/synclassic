@@ -162,6 +162,7 @@ class MainWindow(QMainWindow):
         self.info_action = action("Get Info", self.get_info, QKeySequence("Ctrl+I"))
         self.backups_action = action("Backups…", self.show_backups)
         self.cleanup_action = action("Clean Up…", self.show_cleanup)
+        self.scrobble_action = action("Scrobble to Last.fm", lambda: self.scrobble_now())
         self.folder_action = action("Show Music Folder", lambda: reveal_in_finder(load_settings().music_path))
         self.settings_action = action("Settings…", self.open_settings, QKeySequence.StandardKey.Preferences)
         self.log_action = action("Show Activity", self._toggle_log, QKeySequence("Ctrl+L"))
@@ -175,8 +176,8 @@ class MainWindow(QMainWindow):
             file_menu.addSeparator() if act is None else file_menu.addAction(act)
         ipod_menu = bar.addMenu("iPod")
         for act in (self.update_sync_action, self.sync_action, None, self.new_ipod_playlist_action,
-                    self.import_ipod_playlist_action, self.info_action, None, self.backups_action, self.cleanup_action,
-                    self.ipod_action, None, self.eject_action):
+                    self.import_ipod_playlist_action, self.info_action, None, self.scrobble_action, None,
+                    self.backups_action, self.cleanup_action, self.ipod_action, None, self.eject_action):
             ipod_menu.addSeparator() if act is None else ipod_menu.addAction(act)
         view_menu = bar.addMenu("View")
         view_menu.addAction(self.log_action)
@@ -411,6 +412,10 @@ class MainWindow(QMainWindow):
             button = QPushButton(text)
             button.clicked.connect(slot)
             maintenance.addWidget(button)
+        self.scrobble_button = QPushButton("Scrobble Now")
+        self.scrobble_button.setToolTip("Send the plays logged on your iPod to Last.fm")
+        self.scrobble_button.clicked.connect(lambda: self.scrobble_now())
+        maintenance.addWidget(self.scrobble_button)
         maintenance.addStretch(1)
         info.addLayout(maintenance)
         details_box = QFrame()
@@ -568,6 +573,7 @@ class MainWindow(QMainWindow):
         )
         if self.job is None:
             self._idle_lcd()
+        self._update_scrobble_count()
 
     def _idle_lcd(self) -> None:
         if self.lcd.bar.isVisible():
@@ -951,6 +957,43 @@ class MainWindow(QMainWindow):
             song = self.ipod_contents.songs.get(ids[0])
             if song and self.ipod:
                 reveal_in_finder(self.ipod.root / song.path)
+
+    def _update_scrobble_count(self) -> None:
+        from synclassic import scrobble
+
+        try:
+            count = scrobble.waiting()
+        except OSError:
+            count = 0
+        self.scrobble_button.setText(f"Scrobble Now ({count})" if count else "Scrobble Now")
+        self.scrobble_action.setText(f"Scrobble to Last.fm ({count} plays)" if count else "Scrobble to Last.fm")
+
+    def scrobble_now(self, quiet: bool = False) -> None:
+        """Send waiting plays to Last.fm. quiet=True (after a sync): no dialogs, LCD message only."""
+        from synclassic import lastfm, scrobble
+
+        if self.job is not None:
+            return
+        if not lastfm.connected_user():
+            if not quiet:
+                QMessageBox.information(self, "Last.fm", "Connect your Last.fm account in Settings first.")
+            return
+        if scrobble.waiting() == 0:
+            if not quiet:
+                self.status_label.setText("No plays to scrobble. Plays are picked up at each sync or change.")
+            return
+
+        def done(result):
+            parts = [f"Scrobbled {result.accepted} play{'s' if result.accepted != 1 else ''} to Last.fm"]
+            if result.ignored:
+                parts.append(f"{result.ignored} not accepted")
+            if result.too_old:
+                parts.append(f"{result.too_old} too old (over 2 weeks)")
+            message = ", ".join(parts)
+            self.say(message + "".join(f"\n    {n} × {reason}" for reason, n in (result.reasons or {}).items()))
+            QTimer.singleShot(0, lambda: (self.status_label.setText(message), self._update_scrobble_count()))
+
+        self._run_job("Scrobbling to Last.fm…", lambda task: scrobble.submit(), done, verb="Scrobbling")
 
     def _focused_ipod_table(self):
         focus = QApplication.focusWidget()
@@ -1467,6 +1510,8 @@ class MainWindow(QMainWindow):
 
         def done(result):
             self._load_ipod_contents()
+            if load_settings().scrobble_after_sync:
+                QTimer.singleShot(50, lambda: self.scrobble_now(quiet=True))
             answer = QMessageBox.question(self, "Sync complete", "Your iPod is synced. Eject it now?")
             if answer == QMessageBox.StandardButton.Yes:
                 self.say(ipod_sync.eject(result["ipod"]))

@@ -438,10 +438,55 @@ def cmd_ipod(args) -> int:
         say(f"Sync stopped: {error}")
         return 1
     say(f"(Backup of the previous database: {saved})")
+    from synclassic import lastfm, scrobble
+
+    if load_settings().scrobble_after_sync and lastfm.connected_user() and scrobble.waiting():
+        try:
+            result = scrobble.submit()
+            say(f"Scrobbled {result.accepted} plays to Last.fm.")
+        except lastfm.LastfmError as error:
+            say(f"Last.fm: {error} (the plays are kept for next time)")
     if args.eject:
         say(ipod_sync.eject(ipod))
     else:
         say("Eject the iPod before unplugging it: synclassic ipod eject")
+    return 0
+
+
+def cmd_lastfm(args) -> int:
+    import webbrowser
+
+    from synclassic import lastfm, scrobble
+
+    if args.action == "login":
+        saved = lastfm.load_credentials()
+        key = args.key or saved.get("api_key") or input("Last.fm API key: ").strip()
+        secret = args.secret or saved.get("secret") or input("Last.fm shared secret: ").strip()
+        if not key or not secret:
+            say(f"Create an API account first: {lastfm.CREATE_ACCOUNT_PAGE}")
+            return 1
+        say("Approve Synclassic on the Last.fm page that opens (waiting up to 3 minutes)…")
+        try:
+            user = lastfm.Client(key, secret).connect(lambda url: (say(url), webbrowser.open(url)))
+        except lastfm.LastfmError as error:
+            say(str(error))
+            return 1
+        say(f"Connected to Last.fm as {user}.")
+        return 0
+    if args.action == "logout":
+        lastfm.disconnect()
+        say("Disconnected from Last.fm.")
+        return 0
+    if args.action == "status":
+        user = lastfm.connected_user()
+        say(f"Last.fm: {'connected as ' + user if user else 'not connected'}; {scrobble.waiting()} plays waiting.")
+        return 0
+    try:
+        result = scrobble.submit()
+    except lastfm.LastfmError as error:
+        say(f"{error} (the plays are kept for next time)")
+        return 1
+    say(f"Scrobbled {result.accepted} plays; {result.ignored} not accepted; {result.too_old} too old; {result.left} waiting.")
     return 0
 
 
@@ -558,6 +603,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("gui", help="open the Synclassic app window")
     p.set_defaults(func=lambda args: __import__("synclassic.gui.app", fromlist=["main"]).main())
+
+    p = sub.add_parser("lastfm", help="Last.fm: login, scrobble (send the iPod's plays), status, logout")
+    p.add_argument("action", nargs="?", default="status", choices=["login", "scrobble", "status", "logout"])
+    p.add_argument("--key", help="login: your Last.fm API key")
+    p.add_argument("--secret", help="login: your Last.fm shared secret")
+    p.set_defaults(func=cmd_lastfm)
 
     p = sub.add_parser("install-app", help="make a double-clickable Synclassic.app (macOS)")
     p.add_argument("--dest", help="folder to put it in (default ~/Applications)")

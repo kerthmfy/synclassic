@@ -437,7 +437,9 @@ def apply_plan(
     counts_file = itunes / "Play Counts"
     if counts_file.is_file():
         try:
-            changed = playcounts.merge_play_counts(db, playcounts.parse_play_counts(counts_file.read_bytes()))
+            entries = playcounts.parse_play_counts(counts_file.read_bytes())
+            _queue_scrobbles(db, entries, say)
+            changed = playcounts.merge_play_counts(db, entries)
             say(f"Saved plays/ratings for {changed} songs from the iPod.")
         except ValueError:
             say("The iPod's play counts file couldn't be read; it was left alone.")
@@ -578,6 +580,19 @@ def _add_artwork(ipod: IPod, db: itunesdb.Chunk, plan: Plan, new_dbids: dict[str
             say(f"Added album art for {len(links)} songs.")
     except (OSError, itunesdb.DatabaseError) as error:
         say(f"Album art was skipped this time ({error}); the music sync continues.")
+
+
+def _queue_scrobbles(db: itunesdb.Chunk, entries, say: Say) -> None:
+    """Keep the plays for Last.fm before they're merged (the Play Counts file is deleted after)."""
+    from synclassic import scrobble
+
+    try:
+        added = scrobble.capture(itunesdb.songs(db), entries)
+    except OSError as error:
+        say(f"(Couldn't save plays for Last.fm: {error})")
+        return
+    if added:
+        say(f"{added} plays saved for scrobbling to Last.fm.")
 
 
 def eject(ipod: IPod) -> str:

@@ -378,3 +378,36 @@ def test_delete_a_synced_playlist_from_the_window(app, monkeypatch, tmp_path):
     assert "OUT OF MY MIND" not in names
     assert [p.name for p in window.library.playlists()] == []
     window.close()
+
+
+def test_scrobble_now_from_the_window(app, monkeypatch):
+    from synclassic import lastfm, scrobble
+    from synclassic.gui.main_window import MainWindow
+    from tests.test_lastfm import KEY, SECRET, FakeLastfm, entry, song
+
+    now = time.time()
+    scrobble.capture([song(1), song(2)], [entry(2, now - 900), entry(1, now - 60)])
+    lastfm.save_credentials({"api_key": KEY, "secret": SECRET, "session_key": "SESSION", "user": "kerth"})
+    server = FakeLastfm()
+    monkeypatch.setattr(lastfm.Client, "from_saved", classmethod(lambda cls: cls(KEY, SECRET, "SESSION", session=server)))
+
+    window = MainWindow()
+    assert window.scrobble_button.text() == "Scrobble Now (3)"
+    window.scrobble_now()
+    assert wait_until(app, lambda: window.job is None, 20)
+    wait_until(app, lambda: False, 0.2)
+    assert window.status_label.text() == "Scrobbled 3 plays to Last.fm"
+    assert len(server.scrobbled) == 3 and window.scrobble_button.text() == "Scrobble Now"
+    window.close()
+
+
+def test_settings_has_tabs_and_saves_lastfm_keys(app):
+    from synclassic import lastfm
+    from synclassic.gui.settings_dialog import SettingsDialog
+
+    dialog = SettingsDialog()
+    assert [dialog.tabs.tabText(i) for i in range(dialog.tabs.count())] == ["General", "Spotify", "Last.fm"]
+    dialog.lastfm_key.setText("a" * 32)
+    dialog.lastfm_secret.setText("b" * 32)
+    dialog._save()
+    assert lastfm.load_credentials() == {"api_key": "a" * 32, "secret": "b" * 32}

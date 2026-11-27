@@ -239,6 +239,12 @@ the first change of each session.
   library is backed up first, so a restore can be undone).
 - **Clean Up…**: song files on the iPod that its library doesn't list (add them back, or delete
   them), and songs whose file is missing (remove them).
+- **Scrobble Now**: sends the plays your iPod logged to Last.fm (connect in Settings → Last.fm
+  with a free [Last.fm API account](https://www.last.fm/api/account/create); your password never
+  goes through Synclassic). Plays are saved at every sync or change, so none are lost offline;
+  with "Scrobble automatically after each sync" they're sent right after syncing. Each play
+  counts; plays older than 2 weeks and songs under 30 seconds are rejected by Last.fm.
+  Terminal: `synclassic lastfm login`, `synclassic lastfm scrobble`.
 - **Technical Details** on the iPod page: serial number, database, artwork, leftovers, missing
   files, plays not yet saved, last sync, backups.
 
