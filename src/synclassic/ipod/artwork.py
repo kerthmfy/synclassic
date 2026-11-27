@@ -212,15 +212,10 @@ def to_rgb565(cover: bytes, width: int, height: int) -> bytes:
 
 
 def from_rgb565(data: bytes, width: int, height: int):
-    """Raw RGB565 pixels -> a PIL image (for previews and tests)."""
+    """Raw little-endian RGB565 pixels -> a PIL image (Pillow decodes this layout natively)."""
     from PIL import Image
 
-    rgb = bytearray(width * height * 3)
-    for i in range(width * height):
-        value = data[2 * i] | (data[2 * i + 1] << 8)
-        r, g, b = (value >> 11) & 0x1F, (value >> 5) & 0x3F, value & 0x1F
-        rgb[3 * i], rgb[3 * i + 1], rgb[3 * i + 2] = (r << 3) | (r >> 2), (g << 2) | (g >> 4), (b << 3) | (b >> 2)
-    return Image.frombytes("RGB", (width, height), bytes(rgb))
+    return Image.frombytes("RGB", (width, height), bytes(data), "raw", "BGR;16")
 
 
 def embedded_cover(path: pathlib.Path) -> bytes | None:

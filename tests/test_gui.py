@@ -171,3 +171,45 @@ def test_update_and_sync_runs_both_without_asking_when_it_only_adds(app, monkeyp
     db = itunesdb.parse((root / "iPod_Control" / "iTunes" / "iTunesDB").read_bytes())
     assert "Road Trip" in [p.name for p in itunesdb.playlists(db)]
     window.close()
+
+
+def test_browse_the_ipod(app, monkeypatch, tmp_path):
+    """Plugging in an iPod lists its music, albums, artists, genres and playlists."""
+    from synclassic.gui.main_window import MainWindow
+    from synclassic.ipod import itunesdb
+    from synclassic.ipod.edit import Editor
+    from tests.test_ipod_read import fake_ipod, load
+
+    db = itunesdb.parse(load("captured-album-index-36.b64"))
+    songs = itunesdb.songs(db)
+    editor = Editor(db)
+    master = next(p for p in itunesdb.playlists(db) if p.is_master)
+    itunesdb.set_text(master.chunk, itunesdb.TITLE, "Kerth's iPod")
+    pid = editor.create_playlist("Yeah")
+    editor.set_playlist_songs(pid, [(s.id, s.dbid) for s in songs[:5]])
+    editor.finish()
+    root = fake_ipod(tmp_path, itunesdb.serialize(db))
+    monkeypatch.setenv("SYNCLASSIC_IPOD", str(root))
+
+    window = MainWindow()
+    assert wait_until(app, lambda: window.ipod_contents is not None)
+    assert window.sidebar_entries() == ["Kerth's iPod", "Music", "Albums", "Artists", "Genres", "Yeah"]
+
+    def select(key):
+        for i in range(window.sidebar.topLevelItemCount()):
+            item = window.sidebar.topLevelItem(i)
+            if item.data(0, 256) == key:
+                window.sidebar.setCurrentItem(item)
+
+    select(("ipod", "music"))
+    assert window.ipod_songs.model().rowCount() == 60
+    window.search.setText("Track 001")
+    assert window.ipod_songs.model().rowCount() == 1
+    window.search.setText("")
+    select(("ipodpl", pid))
+    assert window.title.text() == "Yeah" and window.ipod_songs.model().rowCount() == 5
+    select(("ipod", "albums"))
+    assert len(window.albums_page.grid.albums) == 9
+    select(("ipod", "artists"))
+    assert window.artists_page.list.count() == len(window.artists_page.groups) + 1
+    window.close()

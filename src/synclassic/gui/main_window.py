@@ -37,8 +37,10 @@ from synclassic.gui.add_dialog import AddDialog
 from synclassic.gui.full_reader_bridge import FullReaderBridge
 from synclassic.gui.picker_dialog import fmt_time, open_picker
 from synclassic.gui.settings_dialog import SettingsDialog
+from synclassic.gui.ipod_views import AlbumsPage, BrowserPage, SongTable
 from synclassic.gui.widgets import (
     COUNT_ROLE,
+    DEPTH_ROLE,
     ICON_ROLE,
     SECTION_ROLE,
     CapacityBar,
@@ -100,6 +102,7 @@ class MainWindow(QMainWindow):
         self.reader_bridge = FullReaderBridge(self)
         self.ipod = None  # the connected iPod, if any
         self._ipod_root = None
+        self.ipod_contents = None  # what's on it (synclassic.ipod.browse.Contents), loaded in the background
 
         self._build_actions()
         self._build_menus()
@@ -294,6 +297,14 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.table)  # 0
         self.stack.addWidget(self._build_empty_page())  # 1
         self.stack.addWidget(self._build_ipod_page())  # 2
+        self.ipod_songs = SongTable()
+        self.stack.addWidget(self.ipod_songs)  # 3: Music / Podcasts / an iPod playlist
+        self.albums_page = AlbumsPage()
+        self.stack.addWidget(self.albums_page)  # 4
+        self.artists_page = BrowserPage("Artist", "artist")
+        self.stack.addWidget(self.artists_page)  # 5
+        self.genres_page = BrowserPage("Genre", "genre")
+        self.stack.addWidget(self.genres_page)  # 6
         right_layout.addWidget(self.stack, 1)
 
         self.log = QPlainTextEdit()
@@ -439,10 +450,11 @@ class MainWindow(QMainWindow):
         item.setFlags(Qt.ItemFlag.NoItemFlags)
         self.sidebar.addTopLevelItem(item)
 
-    def _add_source(self, text: str, key, icon: str, count=None, tip: str = "") -> None:
+    def _add_source(self, text: str, key, icon: str, count=None, tip: str = "", depth: int = 0) -> None:
         item = QTreeWidgetItem([text])
         item.setData(0, Qt.ItemDataRole.UserRole, key)
         item.setData(0, ICON_ROLE, icon)
+        item.setData(0, DEPTH_ROLE, depth)
         if count:
             item.setData(0, COUNT_ROLE, count)
         if tip:
@@ -460,7 +472,8 @@ class MainWindow(QMainWindow):
             self._add_section("Library")
             self._add_source("Needs Attention", ATTENTION, "attention", len(attention),
                              "Songs that weren't found or might be the wrong version")
-        self._add_section("Playlists")
+        if playlists or self.ipod is None:
+            self._add_section("Playlists")
         for playlist in playlists:
             counts = self.library.counts(playlist)
             total = sum(counts.values())
@@ -470,7 +483,19 @@ class MainWindow(QMainWindow):
                              f"{ready} of {total} songs ready · {playlist.spec.describe()}")
         if self.ipod is not None:
             self._add_section("Devices")
-            self._add_source(self.ipod.name, IPOD, "ipod", None, str(self.ipod.root))
+            contents = self.ipod_contents
+            self._add_source(contents.name if contents else self.ipod.name, IPOD, "ipod", None, str(self.ipod.root))
+            if contents is not None:
+                self._add_source("Music", ("ipod", "music"), "music", depth=1)
+                self._add_source("Albums", ("ipod", "albums"), "albums", depth=1)
+                self._add_source("Artists", ("ipod", "artists"), "artists", depth=1)
+                self._add_source("Genres", ("ipod", "genres"), "genres", depth=1)
+                if contents.songs_of_kind("podcast"):
+                    self._add_source("Podcasts", ("ipod", "podcasts"), "podcasts", depth=1)
+                for playlist in contents.playlists:
+                    tip = "Smart playlist" if playlist.smart else ("Managed by Synclassic" if playlist.synclassic else "")
+                    self._add_source(playlist.name, ("ipodpl", playlist.id), "smart" if playlist.smart else "playlist",
+                                     tip=tip, depth=1)
         # Keep the selection.
         target = None
         first = None
@@ -530,6 +555,9 @@ class MainWindow(QMainWindow):
             self.stack.setCurrentIndex(2)
             self._show_ipod()
             return
+        if isinstance(self.current_key, tuple):
+            self._show_ipod_view(self.current_key)
+            return
         self.header_strip.show()
         self.stack.setCurrentIndex(0)
         if self.current_key == ATTENTION:
@@ -582,7 +610,115 @@ class MainWindow(QMainWindow):
         self.table.verticalScrollBar().setValue(scroll)
         self._apply_search()
 
+    def _show_ipod_view(self, key: tuple) -> None:
+        contents = self.ipod_contents
+        if contents is None:
+            return
+        self.note.hide()
+        self.update_one.hide()
+        self.header_strip.show()
+        kind, which = key
+        name = contents.name
+        if kind == "ipodpl":
+            playlist = next((p for p in contents.playlists if p.id == which), None)
+            if playlist is None:
+                return
+            songs = [contents.songs[i] for i in playlist.song_ids if i in contents.songs]
+            self.title.setText(playlist.name)
+            what = "smart playlist" if playlist.smart else "playlist"
+            managed = " · kept in sync by Synclassic" if playlist.synclassic else ""
+            self.subtitle.setText(f"{len(songs)} songs · {self._length(songs)} · {what} on {name}{managed}")
+            self.ipod_songs.set_songs(songs, keep_order=True)
+            self.stack.setCurrentIndex(3)
+        elif which in ("music", "podcasts"):
+            kind_name = "song" if which == "music" else "podcast"
+            songs = [contents.songs[i] for i in contents.songs_of_kind(kind_name)]
+            self.title.setText("Music" if which == "music" else "Podcasts")
+            self.subtitle.setText(f"{len(songs):,} {'songs' if which == 'music' else 'episodes'} · {self._length(songs)} · on {name}")
+            self.ipod_songs.set_songs(songs)
+            if which == "music":
+                self.ipod_songs.sortByColumn(2, Qt.SortOrder.AscendingOrder)
+            self.stack.setCurrentIndex(3)
+        elif which == "albums":
+            self.title.setText("Albums")
+            self.subtitle.setText(f"{len(self.albums_page.grid.albums):,} albums on {name} · click a cover to see its songs")
+            self.stack.setCurrentIndex(4)
+        elif which in ("artists", "genres"):
+            page = self.artists_page if which == "artists" else self.genres_page
+            self.title.setText("Artists" if which == "artists" else "Genres")
+            self.subtitle.setText(f"{len(page.groups):,} {which} on {name}")
+            self.stack.setCurrentIndex(5 if which == "artists" else 6)
+        self._apply_search()
+
+    @staticmethod
+    def _length(songs) -> str:
+        minutes = sum(s.length_ms for s in songs) // 60000
+        if minutes >= 24 * 60:
+            return f"{minutes / 1440:.1f} days"
+        return f"{minutes // 60} h {minutes % 60} min" if minutes >= 60 else f"{minutes} min"
+
+    def _load_ipod_contents(self) -> None:
+        """Read what's on the iPod (in the background), then show it in the source list."""
+        ipod = self.ipod
+        if ipod is None:
+            self.ipod_contents = None
+            return
+        from synclassic.ipod import browse
+
+        def done(contents):
+            if self.ipod is not ipod:
+                return
+            self.ipod_contents = contents
+            self.albums_page.set_contents(contents)
+            self.artists_page.set_contents(contents)
+            self.genres_page.set_contents(contents)
+            self.refresh()
+            self._load_covers(ipod, contents)
+
+        run_in_background(self, lambda task: browse.read(ipod), done,
+                          lambda error: self.say(f"Couldn't read the iPod's music: {error}"))
+
+    def _load_covers(self, ipod, contents) -> None:
+        from PySide6.QtGui import QImage
+
+        from synclassic.ipod import browse
+
+        albums = self.albums_page.grid.albums
+
+        def work(task):
+            images = []
+            for row, album in enumerate(albums):
+                location = contents.covers.get(album.cover_dbid) if album.cover_dbid else None
+                if not location:
+                    continue
+                try:
+                    picture = browse.cover(ipod, location)
+                except OSError:
+                    continue
+                if picture is not None:
+                    data = picture.tobytes()
+                    image = QImage(data, picture.width, picture.height, picture.width * 3, QImage.Format.Format_RGB888).copy()
+                    images.append((row, image))
+            return images
+
+        def done(images):
+            if self.ipod_contents is not contents:
+                return
+            for row, image in images:
+                self.albums_page.grid.set_cover(row, image)
+
+        run_in_background(self, work, done, lambda error: None)
+
     def _apply_search(self) -> None:
+        text = self.search.text()
+        index = self.stack.currentIndex()
+        if index == 3:
+            self.ipod_songs.proxy.set_query(text)
+        elif index == 4:
+            self.albums_page.grid.filter(text)
+            self.albums_page.songs.proxy.set_query(text)
+        elif index in (5, 6):
+            (self.artists_page if index == 5 else self.genres_page).filter(text)
         words = self.search.text().casefold().split()
         for i in range(self.table.topLevelItemCount()):
             row = self.table.topLevelItem(i)
@@ -604,18 +740,21 @@ class MainWindow(QMainWindow):
             return
         self._ipod_root = root
         self.ipod = ipod
-        if ipod is None and self.current_key == IPOD:
+        self.ipod_contents = None
+        if ipod is None and (self.current_key == IPOD or isinstance(self.current_key, tuple)):
             self.current_key = None
         self.refresh()
+        self._load_ipod_contents()
 
     def _show_ipod(self) -> None:
         ipod = self.ipod
         if ipod is None:
             return
-        self.ipod_name.setText(ipod.name)
-        self.ipod_graphic.set_screen(ipod.name, "Reading…")
+        display = self.ipod_contents.name if self.ipod_contents else ipod.name
+        self.ipod_name.setText(display)
+        self.ipod_graphic.set_screen(display, "Reading…")
         total, free = ipod.disk_usage()
-        rows = [("Name", ipod.name), ("Model", ipod.model), ("Software Version", ipod.firmware or "unknown"),
+        rows = [("Name", display), ("Model", ipod.model), ("Software Version", ipod.firmware or "unknown"),
                 ("Capacity", f"{total / 1000**3:.1f} GB")]
         self._ipod_rows = rows
         self._render_ipod_details(rows)
@@ -634,7 +773,7 @@ class MainWindow(QMainWindow):
             count, audio, playlists = result
             self._render_ipod_details(self._ipod_rows + [("Songs", f"{count:,}"), ("Playlists", str(playlists))])
             self.capacity.set_values(audio, max(0, total - free - audio), free)
-            self.ipod_graphic.set_screen(ipod.name, f"{count:,} songs\n{playlists} playlists")
+            self.ipod_graphic.set_screen(display, f"{count:,} songs\n{playlists} playlists")
 
         run_in_background(self, read, show, lambda error: self.ipod_graphic.set_screen(ipod.name, "Can't read music"))
 
@@ -871,6 +1010,7 @@ class MainWindow(QMainWindow):
                 library.close()
 
         def done(result):
+            self._load_ipod_contents()
             answer = QMessageBox.question(self, "Sync complete", "Your iPod is synced. Eject it now?")
             if answer == QMessageBox.StandardButton.Yes:
                 self.say(ipod_sync.eject(result["ipod"]))

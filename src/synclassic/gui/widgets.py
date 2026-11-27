@@ -221,6 +221,7 @@ class LcdDisplay(QWidget):
 SECTION_ROLE = Qt.ItemDataRole.UserRole + 1  # True for "LIBRARY"/"PLAYLISTS"/"DEVICES" headings
 ICON_ROLE = Qt.ItemDataRole.UserRole + 2  # "playlist", "attention", "ipod"
 COUNT_ROLE = Qt.ItemDataRole.UserRole + 3  # small grey text on the right
+DEPTH_ROLE = Qt.ItemDataRole.UserRole + 4  # 1 = indented under the iPod
 
 
 class SourceListDelegate(QStyledItemDelegate):
@@ -251,9 +252,20 @@ class SourceListDelegate(QStyledItemDelegate):
             painter.fillRect(rect, _gradient(rect, (0, top), (1, bottom)))
             painter.setPen(QColor(theme.SELECT_BORDER if active else "#7d8ca3"))
             painter.drawLine(rect.topLeft(), rect.topRight())
-        icon_rect = QRectF(rect.left() + 18, rect.center().y() - 8, 16, 16)
+        indent = 16 * (index.data(DEPTH_ROLE) or 0)
+        if index.data(ICON_ROLE) == "ipod":  # disclosure triangle: the iPod's contents are listed below
+            triangle = QPainterPath()
+            x, y = rect.left() + 7, rect.center().y()
+            triangle.moveTo(x, y - 3)
+            triangle.lineTo(x + 7, y - 3)
+            triangle.lineTo(x + 3.5, y + 3)
+            triangle.closeSubpath()
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor("#ffffff" if selected else "#5d6b7d"))
+            painter.drawPath(triangle)
+        icon_rect = QRectF(rect.left() + 18 + indent, rect.center().y() - 8, 16, 16)
         draw_source_icon(painter, icon_rect, index.data(ICON_ROLE) or "playlist")
-        text_rect = rect.adjusted(42, 0, -8, 0)
+        text_rect = rect.adjusted(42 + indent, 0, -8, 0)
         count = index.data(COUNT_ROLE)
         font = QFont(option.font)
         font.setPixelSize(12)
@@ -307,6 +319,54 @@ def draw_source_icon(painter: QPainter, r: QRectF, kind: str) -> None:
         painter.setPen(QPen(QColor("#5a3a00"), 1.6))
         painter.drawLine(QPointF(r.center().x(), r.top() + 6), QPointF(r.center().x(), r.bottom() - 6))
         painter.drawPoint(QPointF(r.center().x(), r.bottom() - 3.5))
+    elif kind in ("music", "podcasts"):
+        painter.setPen(QPen(QColor("#2a5ea8"), 0.8))
+        painter.setBrush(_gradient(r, (0, "#8fc2ff"), (1, "#2f6fc9")))
+        painter.drawRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), 3, 3)
+        painter.setPen(QPen(QColor("#ffffff"), 1.4))
+        if kind == "music":
+            painter.setBrush(QColor("#ffffff"))
+            painter.drawEllipse(QPointF(r.left() + 6, r.bottom() - 4.5), 2, 1.6)
+            painter.drawLine(QPointF(r.left() + 7.8, r.bottom() - 4.5), QPointF(r.left() + 7.8, r.top() + 3.5))
+            painter.drawLine(QPointF(r.left() + 7.8, r.top() + 3.5), QPointF(r.right() - 3.5, r.top() + 5))
+        else:
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            c = r.center()
+            painter.drawEllipse(c, 1.6, 1.6)
+            painter.drawArc(QRectF(c.x() - 4.5, c.y() - 4.5, 9, 9), 30 * 16, 120 * 16)
+            painter.drawArc(QRectF(c.x() - 4.5, c.y() - 4.5, 9, 9), 210 * 16, 120 * 16)
+    elif kind == "albums":
+        for offset, color in ((3, "#9aa9bd"), (0, "#5b7aa6")):
+            square = QRectF(r.left() + 1 + offset, r.top() + 1 + (3 - offset), 11, 11)
+            painter.setPen(QPen(QColor("#33496b"), 0.8))
+            painter.setBrush(_gradient(square, (0, QColor(color).lighter(140).name()), (1, color)))
+            painter.drawRect(square)
+    elif kind == "artists":
+        painter.setPen(QPen(QColor("#3e5b85"), 0.8))
+        painter.setBrush(_gradient(r, (0, "#c5d8f2"), (1, "#7a9bca")))
+        painter.drawEllipse(QPointF(r.center().x(), r.top() + 5), 3.6, 3.6)
+        path = QPainterPath()
+        path.moveTo(r.left() + 2, r.bottom() - 1)
+        path.cubicTo(r.left() + 2, r.top() + 8, r.right() - 2, r.top() + 8, r.right() - 2, r.bottom() - 1)
+        path.closeSubpath()
+        painter.drawPath(path)
+    elif kind == "genres":
+        painter.setPen(QPen(QColor("#6b4a1f"), 0.8))
+        painter.setBrush(_gradient(r, (0, "#f3d08a"), (1, "#c98a2b")))
+        painter.drawEllipse(QRectF(r.left() + 1.5, r.top() + 6, 9, 9))
+        painter.setPen(QPen(QColor("#6b4a1f"), 1.6))
+        painter.drawLine(QPointF(r.left() + 8.5, r.top() + 8), QPointF(r.right() - 1.5, r.top() + 1.5))
+    elif kind == "smart":
+        sheet = r.adjusted(1, 0, -1, 0)
+        painter.setPen(QPen(QColor("#6a4f92"), 0.8))
+        painter.setBrush(_gradient(sheet, (0, "#efe6fb"), (1, "#b9a3d8")))
+        painter.drawRoundedRect(sheet, 2, 2)
+        painter.setPen(QPen(QColor("#4b2f73"), 1.3))
+        c = sheet.center()
+        for n in range(6):
+            angle = math.radians(n * 60)
+            painter.drawLine(QPointF(c.x() + math.cos(angle) * 2, c.y() + math.sin(angle) * 2),
+                             QPointF(c.x() + math.cos(angle) * 4.2, c.y() + math.sin(angle) * 4.2))
     else:  # playlist: a little blue-grey sheet with a note
         sheet = r.adjusted(1, 0, -1, 0)
         painter.setPen(QPen(QColor("#56708f"), 0.8))
