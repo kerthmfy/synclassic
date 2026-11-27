@@ -159,6 +159,9 @@ class MainWindow(QMainWindow):
         self.new_ipod_playlist_action = action("New Playlist on iPod…", lambda: self.new_ipod_playlist([]),
                                                QKeySequence("Ctrl+Shift+N"))
         self.import_ipod_playlist_action = action("Import Playlist to iPod…", self.import_ipod_playlist)
+        self.info_action = action("Get Info", self.get_info, QKeySequence("Ctrl+I"))
+        self.backups_action = action("Backups…", self.show_backups)
+        self.cleanup_action = action("Clean Up…", self.show_cleanup)
         self.folder_action = action("Show Music Folder", lambda: reveal_in_finder(load_settings().music_path))
         self.settings_action = action("Settings…", self.open_settings, QKeySequence.StandardKey.Preferences)
         self.log_action = action("Show Activity", self._toggle_log, QKeySequence("Ctrl+L"))
@@ -172,7 +175,8 @@ class MainWindow(QMainWindow):
             file_menu.addSeparator() if act is None else file_menu.addAction(act)
         ipod_menu = bar.addMenu("iPod")
         for act in (self.update_sync_action, self.sync_action, None, self.new_ipod_playlist_action,
-                    self.import_ipod_playlist_action, None, self.ipod_action, self.eject_action):
+                    self.import_ipod_playlist_action, self.info_action, None, self.backups_action, self.cleanup_action,
+                    self.ipod_action, None, self.eject_action):
             ipod_menu.addSeparator() if act is None else ipod_menu.addAction(act)
         view_menu = bar.addMenu("View")
         view_menu.addAction(self.log_action)
@@ -402,6 +406,27 @@ class MainWindow(QMainWindow):
         buttons.addWidget(eject)
         buttons.addStretch(1)
         info.addLayout(buttons)
+        maintenance = QHBoxLayout()
+        for text, slot in (("Backups…", self.show_backups), ("Clean Up…", self.show_cleanup)):
+            button = QPushButton(text)
+            button.clicked.connect(slot)
+            maintenance.addWidget(button)
+        maintenance.addStretch(1)
+        info.addLayout(maintenance)
+        details_box = QFrame()
+        details_box.setObjectName("details")
+        details_box.setStyleSheet("#details { background: rgba(255,255,255,150); border: 1px solid #c9c9c9; border-radius: 6px; }")
+        details_layout = QVBoxLayout(details_box)
+        details_layout.setContentsMargins(14, 8, 14, 8)
+        details_title = QLabel("<b>Technical Details</b>")
+        details_title.setStyleSheet("background: transparent;")
+        self.ipod_tech = QLabel("")
+        self.ipod_tech.setTextFormat(Qt.TextFormat.RichText)
+        self.ipod_tech.setStyleSheet("background: transparent; color: #3b3b3b; font-size: 11px;")
+        self.ipod_tech.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        details_layout.addWidget(details_title)
+        details_layout.addWidget(self.ipod_tech)
+        info.addWidget(details_box)
         info.addStretch(1)
         top.addLayout(info, 1)
         layout.addLayout(top, 1)
@@ -861,6 +886,8 @@ class MainWindow(QMainWindow):
         if not ids or self.ipod_contents is None:
             return
         menu = QMenu(self)
+        info = menu.addAction("Get Info…")
+        menu.addSeparator()
         add_menu = menu.addMenu("Add to Playlist")
         new_from = add_menu.addAction("New Playlist from Selection…")
         add_menu.addSeparator()
@@ -883,7 +910,9 @@ class MainWindow(QMainWindow):
         chosen = menu.exec(table.viewport().mapToGlobal(position))
         if chosen is None:
             return
-        if chosen == new_from:
+        if chosen == info:
+            self.get_info(table)
+        elif chosen == new_from:
             self.new_ipod_playlist(ids)
         elif chosen in targets:
             self.add_to_ipod_playlist(targets[chosen], ids)
@@ -899,6 +928,70 @@ class MainWindow(QMainWindow):
             song = self.ipod_contents.songs.get(ids[0])
             if song and self.ipod:
                 reveal_in_finder(self.ipod.root / song.path)
+
+    def _focused_ipod_table(self):
+        focus = QApplication.focusWidget()
+        for table in self._ipod_tables():
+            if focus is table:
+                return table
+        index = self.stack.currentIndex()
+        return {3: self.ipod_songs, 4: self.albums_page.songs, 5: self.artists_page.songs,
+                6: self.genres_page.songs}.get(index)
+
+    def get_info(self, table=None) -> None:
+        from synclassic.gui.maintenance_dialogs import InfoDialog
+        from synclassic.ipod import manage
+
+        table = table if table is not None and not isinstance(table, bool) else self._focused_ipod_table()
+        if table is None or self.ipod_contents is None:
+            return
+        songs = [self.ipod_contents.songs[i] for i in table.selected_ids() if i in self.ipod_contents.songs]
+        if not songs:
+            return
+        dialog = InfoDialog(songs, self)
+        if dialog.exec() != InfoDialog.DialogCode.Accepted:
+            return
+        changes = dialog.changes()
+        if not changes:
+            return
+        ids = [s.id for s in songs]
+        self._ipod_edit(
+            "Saving song info…",
+            lambda ipod, backup: manage.edit_songs(ipod, ids, changes, backup),
+            done_message=f"Updated {len(ids)} song{'s' if len(ids) != 1 else ''}",
+        )
+
+    def show_backups(self) -> None:
+        from synclassic.gui.maintenance_dialogs import BackupsDialog
+
+        if self.ipod is None:
+            QMessageBox.information(self, "No iPod", "Plug in your iPod first.")
+            return
+        BackupsDialog(self, self.ipod).exec()
+
+    def show_cleanup(self) -> None:
+        from synclassic.gui.maintenance_dialogs import CleanupDialog
+
+        if self.ipod is None:
+            QMessageBox.information(self, "No iPod", "Plug in your iPod first.")
+            return
+        CleanupDialog(self, self.ipod).exec()
+
+    def restore_ipod_backup(self, folder) -> None:
+        from synclassic.ipod import manage
+
+        ipod = self.ipod
+        if ipod is None or self.job is not None:
+            return
+
+        def done(result):
+            self._backed_up.add(ipod.root)
+            QTimer.singleShot(0, lambda: self.status_label.setText("Backup restored"))
+            self._load_ipod_contents()
+            if self.current_key == IPOD:
+                self._show_ipod()
+
+        self._run_job("Restoring backup…", lambda task: manage.restore_backup(ipod, folder), done, verb="Restoring")
 
     def _remove_from_playlist(self, playlist, ids) -> None:
         from synclassic.ipod import manage
@@ -1060,6 +1153,9 @@ class MainWindow(QMainWindow):
         self._render_ipod_details(rows)
         self.capacity.set_values(0, total - free, free)
 
+        self.ipod_tech.setText("Checking…")
+        self._load_ipod_details(ipod)
+
         def read(task):
             from synclassic.ipod import itunesdb
 
@@ -1076,6 +1172,38 @@ class MainWindow(QMainWindow):
             self.ipod_graphic.set_screen(display, f"{count:,} songs\n{playlists} playlists")
 
         run_in_background(self, read, show, lambda error: self.ipod_graphic.set_screen(ipod.name, "Can't read music"))
+
+    def _load_ipod_details(self, ipod) -> None:
+        from synclassic.ipod import sync as ipod_sync
+        from synclassic.ipod.check import check
+
+        def work(task):
+            report = check(ipod)
+            state = ipod_sync.load_state(ipod)
+            return report, state.get("last_sync"), len(ipod_sync.list_backups(ipod))
+
+        def show(result):
+            report, last_sync, backups = result
+            yes = "<span style='color:#2e8b2e'>✓</span>"
+            no = "<span style='color:#c63a3a'>✗</span>"
+            rows = [
+                ("Serial number", ipod.sysinfo.get("pszSerialNumber", "unknown")),
+                ("Database", f"{report.database_size / 1024:,.0f} KB · sections {', '.join(map(str, report.sections))} · "
+                             f"rebuilds exactly {yes if report.round_trip_ok else no}"),
+                ("Library", f"{report.songs:,} songs, {report.videos} videos, {report.podcasts} podcast episodes"),
+                ("Album artwork", f"{report.artwork_images:,} images, "
+                                  + ", ".join(f"{w}×{h}" for _, w, h in report.artwork_sizes) if report.artwork_db else "none"),
+                ("Leftover files", f"{report.unlisted_files}" + (" (Clean Up… can fix this)" if report.unlisted_files else "")),
+                ("Missing files", f"{len(report.missing_files)}" + (" (Clean Up… can fix this)" if report.missing_files else "")),
+                ("Plays not yet saved", "yes (saved at the next change or sync)" if report.play_counts_file else "no"),
+                ("Last Synclassic sync", (last_sync or "never").replace("T", " ")),
+                ("Backups", f"{backups} (Backups… to restore one)"),
+                ("Safe to manage", yes if report.safe_to_manage else f"{no} " + "; ".join(report.problems)),
+            ]
+            cells = "".join(f"<tr><td style='color:#6b6b6b; padding:1px 10px 1px 0'>{k}</td><td>{v}</td></tr>" for k, v in rows)
+            self.ipod_tech.setText(f"<table>{cells}</table>")
+
+        run_in_background(self, work, show, lambda error: self.ipod_tech.setText(f"Couldn't check: {error}"))
 
     def _render_ipod_details(self, rows) -> None:
         cells = "".join(

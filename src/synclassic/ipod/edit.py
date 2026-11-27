@@ -92,6 +92,7 @@ class Editor:
         )
         # Master playlist order before any change, per section (for updating the menu indexes).
         self.original_master_ids = {kind: self._ids(self.master(kind)) for kind in self._playlist_sections()}
+        self.changed_ids: set[int] = set()  # songs whose names changed (re-sorted in the menu indexes)
         self._templates()
 
     # --- structure ----------------------------------------------------------------------------
@@ -226,6 +227,35 @@ class Editor:
                 if len(mhyp.children) != before:
                     self._renumber(mhyp)
 
+    # Editable song fields: text fields by text-field type, numbers by header offset.
+    TEXT_FIELDS = {"title": itunesdb.TITLE, "artist": itunesdb.ARTIST, "album": itunesdb.ALBUM,
+                   "album_artist": itunesdb.ALBUM_ARTIST, "genre": itunesdb.GENRE, "composer": itunesdb.COMPOSER}
+    # iTunes' "sort as" versions of those names; dropped when the name itself changes.
+    SORT_FIELDS = {"title": 27, "artist": 23, "album": 28, "album_artist": 29, "composer": 30}
+    NUMBER_FIELDS = {"year": 0x34, "track_number": 0x2C, "disc_number": 0x5C}
+
+    def update_song(self, song_id: int, changes: dict[str, str | int]) -> None:
+        """Change a song's info: title/artist/album/album_artist/genre/composer, year/track_number/disc_number."""
+        mhit = next((c for c in self.songs_list.children if c.tag == b"mhit" and c.u32(0x10) == song_id), None)
+        if mhit is None:
+            raise itunesdb.DatabaseError("That song is no longer on the iPod.")
+        for name, value in changes.items():
+            if name in self.TEXT_FIELDS:
+                text = str(value).strip()
+                if itunesdb.texts(mhit).get(self.TEXT_FIELDS[name], "") == text:
+                    continue
+                itunesdb.set_text(mhit, self.TEXT_FIELDS[name], text or None)
+                if name in self.SORT_FIELDS:
+                    itunesdb.set_text(mhit, self.SORT_FIELDS[name], None)
+                self.changed_ids.add(song_id)
+            elif name in self.NUMBER_FIELDS:
+                number = max(0, int(value or 0))
+                if mhit.u32(self.NUMBER_FIELDS[name]) != number:
+                    mhit.set_u32(self.NUMBER_FIELDS[name], number)
+                    self.changed_ids.add(song_id)
+            else:
+                raise ValueError(f"Unknown song field: {name}")
+
     # --- playlists ----------------------------------------------------------------------------
 
     def _make_mhip(self, song_id: int, dbid: int, position: int) -> Chunk:
@@ -329,4 +359,4 @@ class Editor:
         songs = {s.id: s for s in itunesdb.songs(self.db)}
         for kind in self._playlist_sections():
             master = self.master(kind)
-            library_index.update(master, self.original_master_ids[kind], self._ids(master), songs)
+            library_index.update(master, self.original_master_ids[kind], self._ids(master), songs, self.changed_ids)

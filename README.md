@@ -231,6 +231,17 @@ Artists, Genres and all its playlists. Right-click or drag, like iTunes:
 Each change is checked, written safely and verified, like a sync; the iPod is backed up before
 the first change of each session.
 
+**Maintenance** (iPod menu, or the buttons on the iPod page):
+
+- **Get Info** (⌘I, or right-click a song): edit name, artist, album artist, album, genre, year,
+  track and disc number, for one song or many at once (only fields you change are applied).
+- **Backups…**: every backup with its date and song count; **Restore** puts one back (the current
+  library is backed up first, so a restore can be undone).
+- **Clean Up…**: song files on the iPod that its library doesn't list (add them back, or delete
+  them), and songs whose file is missing (remove them).
+- **Technical Details** on the iPod page: serial number, database, artwork, leftovers, missing
+  files, plays not yet saved, last sync, backups.
+
 Safety: the iPod's database is backed up before every sync (the last 10 are kept). To go back:
 
 ```bash

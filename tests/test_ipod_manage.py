@@ -138,3 +138,112 @@ def test_failed_check_changes_nothing(ipod):
     with pytest.raises(manage.ManageError):
         manage.create_playlist(ipod, "Nope", [])
     assert ipod.database_path.read_bytes() == bytes(data)
+
+
+def test_edit_song_info_and_resort_menus(ipod):
+    songs = itunesdb.songs(db(ipod))
+    first, second = songs[0], songs[1]
+    manage.edit_songs(ipod, [first.id], {"title": "Zzz Last", "artist": "Aaa First", "year": 1999, "track_number": 7})
+    after = {s.id: s for s in itunesdb.songs(db(ipod))}
+    edited = after[first.id]
+    assert (edited.title, edited.artist, edited.year, edited.track_number) == ("Zzz Last", "Aaa First", 1999, 7)
+    assert after[second.id].title == second.title  # others untouched
+    # Many songs at once: only the given field changes.
+    manage.edit_songs(ipod, [s.id for s in songs[2:5]], {"genre": "Jazz"})
+    after = {s.id: s for s in itunesdb.songs(db(ipod))}
+    assert all(after[s.id].genre == "Jazz" and after[s.id].title == s.title for s in songs[2:5])
+    # The menu index still lists every song exactly once.
+    master = next(p for p in itunesdb.playlists(db(ipod)) if p.is_master).chunk
+    for child in master.children:
+        if child.tag == b"mhod" and child.mhod_type == 52:
+            count = struct.unpack_from("<I", child.body, 4)[0]
+            assert sorted(struct.unpack_from(f"<{count}I", child.body, 48)) == list(range(60))
+
+
+def test_resorted_after_rename(ipod):
+    """A renamed song moves to its new place in the title index."""
+    from synclassic.ipod import library_index
+
+    data = db(ipod)
+    master = next(p for p in itunesdb.playlists(data) if p.is_master).chunk
+    songs = {s.id: s for s in itunesdb.songs(data)}
+    ids = [m.u32(0x18) for m in master.find(b"mhip")]
+    order = library_index.full_order(ids, songs, library_index.SORT_TITLE)
+    position = {i: n for n, i in enumerate(ids)}
+    index = itunesdb.Chunk(b"mhod", bytearray(24), body=library_index._body52(3, [position[i] for i in order]))
+    index.header[0:4] = b"mhod"
+    struct.pack_into("<III", index.header, 4, 24, 0, 52)
+    master.children.append(index)
+    ipod.database_path.write_bytes(itunesdb.serialize(data))
+
+    victim = order[0]  # alphabetically first
+    manage.edit_songs(ipod, [victim], {"title": "zzzz the very last"})
+    master = next(p for p in itunesdb.playlists(db(ipod)) if p.is_master).chunk
+    body = next(c for c in master.children if c.tag == b"mhod" and c.mhod_type == 52
+                and struct.unpack_from("<I", c.body, 0)[0] == library_index.SORT_TITLE).body
+    count = struct.unpack_from("<I", body, 4)[0]
+    positions = struct.unpack_from(f"<{count}I", body, 48)
+    ids = [m.u32(0x18) for m in master.find(b"mhip")]
+    assert ids[positions[-1]] == victim  # now last
+
+
+def test_cleanup_finds_and_fixes_leftovers_and_missing_files(ipod, tmp_path):
+    # A leftover song file the library doesn't list, and a listed song whose file is gone.
+    leftover = ipod.control / "Music" / "F00" / "LEFT.m4a"
+    make_audio(leftover, seconds=2)
+    from mutagen.mp4 import MP4
+
+    audio = MP4(leftover)
+    audio["\xa9nam"], audio["\xa9ART"] = ["Found Again"], ["Somebody"]
+    audio.save()
+    session = manage.EditSession(ipod)
+    gone_id = session.copy_file(make_audio(tmp_path / "Gone.m4a", seconds=2))
+    session.commit()
+    gone = next(s for s in itunesdb.songs(db(ipod)) if s.id == gone_id)
+    (ipod.root / gone.relative_path).unlink()
+
+    report = manage.find_cleanup(ipod)
+    assert report.leftovers == [leftover] and [i for i, _ in report.missing] == [gone_id]
+
+    assert manage.add_leftovers(ipod, report.leftovers) == 1
+    found = next(s for s in itunesdb.songs(db(ipod)) if s.title == "Found Again")
+    assert found.artist == "Somebody" and found.relative_path == "iPod_Control/Music/F00/LEFT.m4a"
+    assert manage.remove_missing(ipod, [gone_id]) == 1
+    report = manage.find_cleanup(ipod)
+    assert report.leftovers == [] and report.missing == []
+
+
+def test_delete_leftovers_never_touches_listed_songs(ipod, tmp_path):
+    leftover = ipod.control / "Music" / "F00" / "JUNK.mp3"
+    leftover.write_bytes(b"x" * 100)
+    session = manage.EditSession(ipod)
+    kept_id = session.copy_file(make_audio(tmp_path / "Keep.m4a", seconds=2))
+    session.commit()
+    kept = ipod.root / next(s for s in itunesdb.songs(db(ipod)) if s.id == kept_id).relative_path
+    assert manage.delete_leftovers(ipod, [leftover, kept]) == 1
+    assert not leftover.exists() and kept.exists()
+
+
+def test_backups_list_and_restore_can_be_undone(ipod):
+    original = ipod.database_path.read_bytes()
+    songs = itunesdb.songs(db(ipod))
+    manage.create_playlist(ipod, "Before", [songs[0].id])  # backs up the original
+    changed = ipod.database_path.read_bytes()
+    backups = manage.list_backups(ipod)
+    assert len(backups) == 1 and backups[0].songs == 60
+    undo = manage.restore_backup(ipod, backups[0].folder)
+    assert ipod.database_path.read_bytes() == original
+    assert (undo / "iTunesDB").read_bytes() == changed  # the restore itself can be undone
+
+
+def test_restoring_the_oldest_of_ten_backups(ipod, monkeypatch):
+    from synclassic.ipod import sync as ipod_sync
+
+    for n in range(10):
+        manage.create_playlist(ipod, f"P{n}", [])
+    oldest = manage.list_backups(ipod)[-1]
+    assert len(manage.list_backups(ipod)) == 10
+    expected = (oldest.folder / "iTunesDB").read_bytes()
+    manage.restore_backup(ipod, oldest.folder)  # the backup rotation removes this very folder
+    assert ipod.database_path.read_bytes() == expected
+    assert not oldest.folder.exists() and len(ipod_sync.list_backups(ipod)) == 10

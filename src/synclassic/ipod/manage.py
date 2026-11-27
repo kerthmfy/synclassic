@@ -136,6 +136,23 @@ class EditSession:
             self.deleted_dbids.add(song.dbid)
         return len(doomed)
 
+    def list_file_on_ipod(self, path: pathlib.Path) -> int:
+        """Add a song file that's already on the iPod (but not in its library). Returns its song id."""
+        extension = path.suffix.lower()
+        if extension not in SUPPORTED:
+            raise ManageError(f"The iPod can't play {extension} files.")
+        location = ":" + path.relative_to(self.ipod.root).as_posix().replace("/", ":")
+        song_id, dbid = self.editor.add_song(song_from_file(path, location, extension))
+        cover = artwork.embedded_cover(path)
+        if cover:
+            self.art_jobs.append((dbid, cover))
+        return song_id
+
+    def edit_songs(self, song_ids: list[int], changes: dict[str, str | int]) -> int:
+        for song_id in song_ids:
+            self.editor.update_song(song_id, changes)
+        return len(song_ids)
+
     def copy_file(self, path: pathlib.Path) -> int:
         """Copy a song file from this computer onto the iPod. Returns its new song id."""
         extension = path.suffix.lower()
@@ -280,6 +297,119 @@ def add_to_playlist(ipod: IPod, playlist_id: int, song_ids: list[int], make_back
 
 def delete_songs(ipod: IPod, song_ids: set[int], make_backup: bool = True) -> int:
     return _run(ipod, make_backup, lambda s: s.delete_songs(song_ids))
+
+
+def edit_songs(ipod: IPod, song_ids: list[int], changes: dict[str, str | int], make_backup: bool = True) -> int:
+    """Change song info (only the given fields) for one or more songs."""
+    return _run(ipod, make_backup, lambda s: s.edit_songs(song_ids, changes))
+
+
+# --- clean up --------------------------------------------------------------------------------------
+
+AUDIO_EXTENSIONS = {".mp3", ".m4a", ".m4b", ".m4p", ".aac", ".wav", ".aif", ".aiff", ".mp4", ".m4v", ".mov"}
+
+
+@dataclass
+class CleanupReport:
+    leftovers: list[pathlib.Path] = field(default_factory=list)  # files the library doesn't list
+    leftover_bytes: int = 0
+    missing: list[tuple[int, str]] = field(default_factory=list)  # (song id, "Artist - Title") without a file
+
+
+def find_cleanup(ipod: IPod) -> CleanupReport:
+    db = itunesdb.parse(ipod.database_path.read_bytes())
+    songs = itunesdb.songs(db)
+    listed = {s.relative_path.lower() for s in songs if s.location}
+    report = CleanupReport()
+    music = ipod.control / "Music"
+    if music.is_dir():
+        for path in sorted(music.rglob("*")):
+            if path.suffix.lower() in AUDIO_EXTENSIONS and path.is_file() and not path.name.startswith("._"):
+                if path.relative_to(ipod.root).as_posix().lower() not in listed:
+                    report.leftovers.append(path)
+                    report.leftover_bytes += path.stat().st_size
+    for song in songs:
+        if song.location and not (ipod.root / song.relative_path).is_file():
+            report.missing.append((song.id, f"{song.artist} - {song.title}" if song.artist else song.title))
+    return report
+
+
+def add_leftovers(ipod: IPod, paths: list[pathlib.Path], make_backup: bool = True, say: Say = _quiet) -> int:
+    """Put leftover song files back into the iPod's library (using their own tags)."""
+    def action(session: EditSession) -> int:
+        added = 0
+        for path in paths:
+            try:
+                session.list_file_on_ipod(path)
+                added += 1
+            except (ManageError, OSError, ValueError) as error:
+                say(f"Skipped {path.name}: {error}")
+        return added
+
+    return _run(ipod, make_backup, action, say)
+
+
+def delete_leftovers(ipod: IPod, paths: list[pathlib.Path]) -> int:
+    """Delete leftover files. Re-checks each one against the library first (never deletes a listed song)."""
+    current = {p.resolve() for p in find_cleanup(ipod).leftovers}
+    deleted = 0
+    for path in paths:
+        if path.resolve() in current:
+            path.unlink(missing_ok=True)
+            deleted += 1
+    return deleted
+
+
+def remove_missing(ipod: IPod, song_ids: list[int], make_backup: bool = True) -> int:
+    """Remove library entries whose file is gone."""
+    return _run(ipod, make_backup, lambda s: s.delete_songs(set(song_ids)))
+
+
+# --- backups -------------------------------------------------------------------------------------
+
+
+@dataclass
+class BackupInfo:
+    folder: pathlib.Path
+    when: str
+    songs: int | None
+    size: int
+    has_artwork: bool
+
+
+def list_backups(ipod: IPod) -> list[BackupInfo]:
+    from synclassic.ipod.sync import list_backups as folders
+
+    result = []
+    for folder in folders(ipod):
+        database = folder / "iTunesDB"
+        if not database.is_file():
+            continue
+        try:
+            songs = len(itunesdb.songs(itunesdb.parse(database.read_bytes())))
+        except (OSError, itunesdb.DatabaseError):
+            songs = None
+        name = folder.name
+        when = f"{name[:10]} {name[11:19].replace('-', ':')}" if len(name) >= 19 else name
+        result.append(BackupInfo(folder, when, songs, database.stat().st_size, (folder / "ArtworkDB").is_file()))
+    return result
+
+
+def restore_backup(ipod: IPod, folder: pathlib.Path) -> pathlib.Path:
+    """Put a backup back on the iPod. The current state is backed up first, so this can be undone.
+    Returns that new backup's folder."""
+    import tempfile
+
+    from synclassic.ipod.sync import restore
+
+    # Copy the chosen backup aside first: making the new backup can rotate the oldest one away.
+    with tempfile.TemporaryDirectory(prefix="synclassic-restore-") as tmp:
+        chosen = pathlib.Path(tmp) / "backup"
+        shutil.copytree(folder, chosen)
+        itunesdb.parse((chosen / "iTunesDB").read_bytes())  # refuse a damaged backup before changing anything
+        current = backup(ipod)
+        restore(ipod, chosen)
+    return current
 
 
 @dataclass

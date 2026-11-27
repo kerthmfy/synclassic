@@ -175,13 +175,16 @@ def index_sort_types(master: Chunk) -> tuple[list[int], list[int]]:
     return t52, t53
 
 
-def update(master: Chunk, old_ids: list[int], new_ids: list[int], songs: dict[int, SongView]) -> None:
+def update(
+    master: Chunk, old_ids: list[int], new_ids: list[int], songs: dict[int, SongView], changed: set[int] | None = None
+) -> None:
     """Update the master playlist's indexes after its song list changed from old_ids to new_ids.
 
     `old_ids` / `new_ids` are the master playlist's song ids in order, before and after.
     `songs` must contain every id in new_ids.
     """
-    if old_ids == new_ids:
+    changed = changed or set()
+    if old_ids == new_ids and not changed:
         return
     new_position = {}
     for position, song_id in enumerate(new_ids):
@@ -191,7 +194,8 @@ def update(master: Chunk, old_ids: list[int], new_ids: list[int], songs: dict[in
     for child in master.children:
         if child.tag == b"mhod" and child.mhod_type == 52 and len(child.body) >= 48:
             sort_type, positions = _positions(child.body)
-            existing = [old_ids[p] for p in positions if p < len(old_ids)]
+            # Songs whose names changed are taken out and sorted back in like new ones.
+            existing = [old_ids[p] for p in positions if p < len(old_ids) and old_ids[p] not in changed]
             old_orders[sort_type] = existing
             order = merged_order(existing, list(dict.fromkeys(new_ids)), songs, sort_type)
             orders[sort_type] = order

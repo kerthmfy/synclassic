@@ -270,3 +270,71 @@ def test_manage_ipod_playlists_from_the_window(app, monkeypatch, tmp_path):
     backups = list((window.library_path.parent / "ipod-backups").rglob("iTunesDB"))
     assert len(backups) == 1  # backed up once for the whole session
     window.close()
+
+
+def test_maintenance_from_the_window(app, monkeypatch, tmp_path):
+    """Get Info on several songs, Clean Up a leftover file, then restore a backup."""
+    from PySide6.QtCore import QItemSelectionModel
+    from PySide6.QtWidgets import QMessageBox
+
+    from synclassic.gui import maintenance_dialogs
+    from synclassic.gui.main_window import MainWindow
+    from synclassic.ipod import itunesdb
+
+    from tests.test_ipod_read import fake_ipod, load
+
+    root = fake_ipod(tmp_path, load("captured-album-index-36.b64"))
+    monkeypatch.setenv("SYNCLASSIC_IPOD", str(root))
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
+    database = root / "iPod_Control" / "iTunes" / "iTunesDB"
+    original = database.read_bytes()
+
+    window = MainWindow()
+    assert wait_until(app, lambda: window.ipod_contents is not None)
+
+    def settle():
+        assert wait_until(app, lambda: window.job is None, 20)
+        wait_until(app, lambda: False, 0.4)
+
+    # Get Info on the first three songs of Music: set the genre only.
+    for i in range(window.sidebar.topLevelItemCount()):
+        item = window.sidebar.topLevelItem(i)
+        if item.data(0, 256) == ("ipod", "music"):
+            window.sidebar.setCurrentItem(item)
+    table = window.ipod_songs
+    for row in range(3):
+        table.selectionModel().select(table.model().index(row, 0),
+                                      QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows)
+    chosen = table.selected_ids()
+
+    def accept_with_genre(dialog):
+        dialog.fields["genre"].setText("Jazz")
+        dialog.fields["genre"].setProperty("touched", True)
+        return maintenance_dialogs.InfoDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(maintenance_dialogs.InfoDialog, "exec", accept_with_genre)
+    window.get_info(table)
+    settle()
+    songs = {s.id: s for s in itunesdb.songs(itunesdb.parse(database.read_bytes()))}
+    assert [songs[i].genre for i in chosen] == ["Jazz"] * 3
+    assert "Updated 3 songs" in window.status_label.text()
+
+    # Clean Up: a leftover file is added back to the library.
+    leftover = root / "iPod_Control" / "Music" / "F00" / "LOST.m4a"
+    make_audio(leftover, seconds=2)
+    dialog = maintenance_dialogs.CleanupDialog(window, window.ipod)
+    assert wait_until(app, lambda: dialog.report is not None)
+    assert dialog.report.leftovers == [leftover]
+    dialog._add()
+    settle()
+    assert len(itunesdb.songs(itunesdb.parse(database.read_bytes()))) == 61
+
+    # Backups: restore the one made before the first change.
+    from synclassic.ipod import manage
+
+    backups = manage.list_backups(window.ipod)
+    assert len(backups) == 1
+    window.restore_ipod_backup(backups[0].folder)
+    settle()
+    assert database.read_bytes() == original
+    window.close()
