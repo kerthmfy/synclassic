@@ -459,9 +459,9 @@ def cmd_lastfm(args) -> int:
     from synclassic import lastfm, scrobble
 
     if args.action == "login":
-        saved = lastfm.load_credentials()
-        key = args.key or saved.get("api_key") or input("Last.fm API key: ").strip()
-        secret = args.secret or saved.get("secret") or input("Last.fm shared secret: ").strip()
+        default_key, default_secret = lastfm.app_key()
+        key = args.key or default_key or input("Last.fm API key: ").strip()
+        secret = args.secret or default_secret or input("Last.fm shared secret: ").strip()
         if not key or not secret:
             say(f"Create an API account first: {lastfm.CREATE_ACCOUNT_PAGE}")
             return 1

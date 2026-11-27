@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QTabWidget,
     QVBoxLayout,
+    QWidget,
 )
 
 from synclassic.config import Settings, load_settings, save_settings
@@ -158,14 +159,23 @@ class SettingsDialog(QDialog):
         lbox = QVBoxLayout(lastfm_box)
         self.lastfm_status = QLabel("")
         lbox.addWidget(self.lastfm_status)
+        builtin = all(lastfm.builtin_key())
+        own = bool(saved.get("api_key") and saved.get("secret"))
+        self.lastfm_own = QCheckBox("Advanced: use my own Last.fm API account")
+        self.lastfm_own.setChecked(own or not builtin)
+        self.lastfm_own.setVisible(builtin)  # without a built-in key, your own is the only way
+        lbox.addWidget(self.lastfm_own)
+        self.lastfm_advanced = QWidget()
+        advanced = QVBoxLayout(self.lastfm_advanced)
+        advanced.setContentsMargins(0, 0, 0, 0)
         lsteps = QLabel(
-            f"1. <a href='{lastfm.CREATE_ACCOUNT_PAGE}'>Create a Last.fm API account</a> (any name; leave the "
-            "callback URL empty).<br>2. Paste its <b>API key</b> and <b>shared secret</b> here and click Connect."
+            f"<a href='{lastfm.CREATE_ACCOUNT_PAGE}'>Create a Last.fm API account</a> (any name; leave the "
+            "callback URL empty), then paste its <b>API key</b> and <b>shared secret</b>."
         )
         lsteps.setTextFormat(Qt.TextFormat.RichText)
         lsteps.setOpenExternalLinks(True)
         lsteps.setWordWrap(True)
-        lbox.addWidget(lsteps)
+        advanced.addWidget(lsteps)
         lform = QFormLayout()
         self.lastfm_key = QLineEdit(saved.get("api_key", ""))
         self.lastfm_key.setPlaceholderText("API key")
@@ -174,7 +184,10 @@ class SettingsDialog(QDialog):
         self.lastfm_secret.setEchoMode(QLineEdit.EchoMode.Password)
         lform.addRow("API key", self.lastfm_key)
         lform.addRow("Shared secret", self.lastfm_secret)
-        lbox.addLayout(lform)
+        advanced.addLayout(lform)
+        lbox.addWidget(self.lastfm_advanced)
+        self.lastfm_advanced.setVisible(self.lastfm_own.isChecked())
+        self.lastfm_own.toggled.connect(self.lastfm_advanced.setVisible)
         lrow = QHBoxLayout()
         self.lastfm_connect = QPushButton("Connect to Last.fm")
         self.lastfm_connect.clicked.connect(self._lastfm_connect)
@@ -209,10 +222,13 @@ class SettingsDialog(QDialog):
 
         from synclassic import lastfm
 
-        key, secret = self.lastfm_key.text().strip(), self.lastfm_secret.text().strip()
-        if not key or not secret:
-            QMessageBox.information(self, "Last.fm", "Paste your Last.fm API key and shared secret first.")
-            return
+        if self.lastfm_own.isChecked():
+            key, secret = self.lastfm_key.text().strip(), self.lastfm_secret.text().strip()
+            if not key or not secret:
+                QMessageBox.information(self, "Last.fm", "Paste your Last.fm API key and shared secret first.")
+                return
+        else:
+            key, secret = lastfm.builtin_key()
         self.lastfm_connect.setEnabled(False)
         self.lastfm_status.setText("Approve Synclassic on the Last.fm page that just opened…")
 
@@ -287,11 +303,14 @@ class SettingsDialog(QDialog):
         self.settings.scrobble_after_sync = self.scrobble_after.isChecked()
         from synclassic import lastfm
 
-        key, secret = self.lastfm_key.text().strip(), self.lastfm_secret.text().strip()
         credentials = lastfm.load_credentials()
+        if self.lastfm_own.isChecked():
+            key, secret = self.lastfm_key.text().strip(), self.lastfm_secret.text().strip()
+        else:
+            key, secret = "", ""  # the built-in account
         if (key, secret) != (credentials.get("api_key", ""), credentials.get("secret", "")):
-            # A different API account: keep the new key/secret; the old connection no longer applies.
-            lastfm.save_credentials({"api_key": key, "secret": secret})
+            # A different API account: the old connection no longer applies.
+            lastfm.save_credentials({"api_key": key, "secret": secret} if key else {})
         self.settings.spotify_client_id = self.client_id.text().strip() or self.settings.spotify_client_id
         save_settings(self.settings)
         self.accept()

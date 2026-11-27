@@ -407,6 +407,7 @@ def test_settings_has_tabs_and_saves_lastfm_keys(app):
 
     dialog = SettingsDialog()
     assert [dialog.tabs.tabText(i) for i in range(dialog.tabs.count())] == ["General", "Spotify", "Last.fm"]
+    dialog.lastfm_own.setChecked(True)
     dialog.lastfm_key.setText("a" * 32)
     dialog.lastfm_secret.setText("b" * 32)
     dialog._save()

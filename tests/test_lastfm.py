@@ -162,3 +162,27 @@ def test_sync_queues_the_ipods_plays(tmp_path):
     queue = scrobble.load_queue()
     assert [p["track"] for p in queue] == [songs[3].title] * 2
     assert any("2 plays saved for scrobbling" in m for m in messages)
+
+
+def test_builtin_key_means_one_click_connect(monkeypatch):
+    from synclassic import lastfm_app
+
+    monkeypatch.setattr(lastfm_app, "API_KEY", KEY)
+    monkeypatch.setattr(lastfm_app, "SHARED_SECRET", SECRET)
+    assert lastfm.app_key() == (KEY, SECRET)
+    server = FakeLastfm()
+    key, secret = lastfm.app_key()
+    assert lastfm.Client(key, secret, session=server).connect(lambda url: None, sleep=lambda s: None) == "kerth"
+    saved = lastfm.load_credentials()
+    assert "api_key" not in saved and saved["session_key"] == "SESSION"  # nothing to paste, nothing stored
+    client = lastfm.Client.from_saved()
+    assert (client.api_key, client.secret, client.session_key) == (KEY, SECRET, "SESSION")
+
+
+def test_own_key_overrides_the_builtin_one(monkeypatch):
+    from synclassic import lastfm_app
+
+    monkeypatch.setattr(lastfm_app, "API_KEY", "builtin")
+    monkeypatch.setattr(lastfm_app, "SHARED_SECRET", "builtin")
+    lastfm.save_credentials({"api_key": KEY, "secret": SECRET})
+    assert lastfm.app_key() == (KEY, SECRET)

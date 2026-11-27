@@ -54,6 +54,21 @@ def save_credentials(data: dict) -> None:
     os.replace(tmp, path)
 
 
+def builtin_key() -> tuple[str, str]:
+    """Synclassic's own API account (see lastfm_app.py); empty when not filled in."""
+    from synclassic import lastfm_app
+
+    return lastfm_app.API_KEY.strip(), lastfm_app.SHARED_SECRET.strip()
+
+
+def app_key() -> tuple[str, str]:
+    """The API account to connect with: your own (Settings → Advanced) or Synclassic's built-in one."""
+    data = load_credentials()
+    if data.get("api_key") and data.get("secret"):
+        return data["api_key"], data["secret"]
+    return builtin_key()
+
+
 def connected_user() -> str | None:
     data = load_credentials()
     return data.get("user") if data.get("session_key") else None
@@ -74,14 +89,16 @@ def sign(params: dict[str, str], secret: str) -> str:
 class Client:
     def __init__(self, api_key: str, secret: str, session_key: str | None = None, session: requests.Session | None = None):
         if not api_key or not secret:
-            raise LastfmError("Add your Last.fm API key and shared secret in Settings first.")
+            raise LastfmError("Synclassic has no Last.fm API key yet: add one in lastfm_app.py, or your own in "
+                              "Settings → Last.fm → Advanced.")
         self.api_key, self.secret, self.session_key = api_key.strip(), secret.strip(), session_key
         self.http = session or requests.Session()
 
     @classmethod
     def from_saved(cls) -> "Client":
         data = load_credentials()
-        return cls(data.get("api_key", ""), data.get("secret", ""), data.get("session_key"))
+        key, secret = app_key()
+        return cls(data.get("api_key") or key, data.get("secret") or secret, data.get("session_key"))
 
     def call(self, method: str, params: dict | None = None, post: bool = False, signed: bool = True) -> dict:
         query = {"method": method, "api_key": self.api_key, **{k: str(v) for k, v in (params or {}).items()}}
@@ -129,7 +146,10 @@ class Client:
                     raise
                 sleep(poll)
         self.session_key = key
-        save_credentials({"api_key": self.api_key, "secret": self.secret, "session_key": key, "user": user})
+        data = {"session_key": key, "user": user}
+        if (self.api_key, self.secret) != builtin_key():  # only remember a key that isn't the built-in one
+            data.update(api_key=self.api_key, secret=self.secret)
+        save_credentials(data)
         return user
 
     # --- scrobbling ---------------------------------------------------------------------------
