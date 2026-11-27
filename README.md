@@ -37,6 +37,17 @@ Open the app:
 synclassic-gui
 ```
 
+Or make a double-clickable **Synclassic.app** (in `~/Applications`, with its own icon; open it
+from Finder or Spotlight and drag it to your Dock):
+
+```bash
+synclassic install-app
+```
+
+The app runs the Synclassic installed in this folder, so `git pull` updates it too. Run
+`install-app` again if you move the folder or recreate `.venv`. Problems are logged to
+`~/Library/Logs/Synclassic.log`.
+
 `ffmpeg` converts and repackages audio (and its `ffplay` plays previews). `deno` is needed
 by the YouTube downloader. Next time, open Terminal, `cd synclassic`, and run
 `source .venv/bin/activate` before using `synclassic` or `synclassic-gui`.
@@ -45,7 +56,10 @@ by the YouTube downloader. Next time, open Terminal, `cd synclassic`, and run
 
 - **＋ Add playlists**: paste a Spotify link, tick playlists from your Spotify account
   (including Liked Songs), or import an `.m3u8` / `.csv` file.
-- **⟳ Update all**: checks every playlist for changes and downloads what's new. **■ Stop**
+- **Update & Sync** (top right, or on the iPod page): checks Spotify, downloads what's new,
+  then syncs your iPod. If the sync only adds songs and playlists it goes straight through;
+  removals and playlist take-overs are shown first for you to confirm.
+- **⟳ Update**: checks every playlist for changes and downloads what's new. **■ Stop**
   pauses after the current song; updating again continues where it left off.
 - **Needs attention**: songs that weren't found or might be the wrong version.
   Double-click a song to see the closest YouTube Music results, **play a preview**, search

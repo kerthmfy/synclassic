@@ -373,91 +373,103 @@ class IPodGraphic(QWidget):
 
     def paintEvent(self, event):  # noqa: N802
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        h = min(self.height() - 20, (self.width() - 20) * 1.66)
-        w = h / 1.66
-        body = QRectF((self.width() - w) / 2, (self.height() - h) / 2, w, h)
-        # Shadow, chrome edge, black front.
-        shadow = QRadialGradient(body.center() + QPointF(0, h * 0.48), w * 0.7)
-        shadow.setColorAt(0, QColor(0, 0, 0, 70))
-        shadow.setColorAt(1, QColor(0, 0, 0, 0))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(shadow)
-        painter.drawEllipse(QRectF(body.left() - 10, body.bottom() - 14, w + 20, 28))
-        painter.setBrush(_gradient(body, (0, "#f4f4f4"), (0.5, "#9d9d9d"), (1, "#e6e6e6"), horizontal=True))
-        painter.drawRoundedRect(body, w * 0.09, w * 0.09)
-        front = body.adjusted(1.6, 1.6, -1.6, -1.6)
-        painter.setBrush(_gradient(front, (0, "#3c3c3c"), (0.08, "#1b1b1b"), (1, "#050505")))
-        painter.drawRoundedRect(front, w * 0.085, w * 0.085)
-        # Screen.
-        screen = QRectF(front.left() + w * 0.09, front.top() + w * 0.11, w * 0.80, w * 0.62)
-        painter.setPen(QPen(QColor("#000000"), 1.2))
-        painter.setBrush(_gradient(screen, (0, "#f6fbff"), (0.18, "#d9ecfb"), (1, "#a9cbe8")))
-        painter.drawRect(screen)
-        title_bar = QRectF(screen.left(), screen.top(), screen.width(), screen.height() * 0.16)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(_gradient(title_bar, (0, "#fdfdfd"), (1, "#c4c9cf")))
-        painter.drawRect(title_bar)
-        font = QFont(self.font())
-        font.setPixelSize(max(8, int(screen.height() * 0.1)))
-        font.setBold(True)
-        painter.setFont(font)
-        painter.setPen(QColor("#111111"))
-        painter.drawText(title_bar, Qt.AlignmentFlag.AlignCenter, self.name)
-        font.setPixelSize(max(8, int(screen.height() * 0.1)))
-        font.setBold(False)
-        painter.setFont(font)
+        paint_ipod(painter, QRectF(self.rect()).adjusted(10, 10, -10, -10), self.name, self.line, self.font())
+
+
+def paint_ipod(painter: QPainter, area: QRectF, name: str, line: str, base_font: QFont, shadow: bool = True) -> None:
+    """Draw a black 5.5G iPod (Video), as large as fits in `area`."""
+    painter.save()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    h = min(area.height(), area.width() * 1.66)
+    w = h / 1.66
+    body = QRectF(area.center().x() - w / 2, area.center().y() - h / 2, w, h)
+    # Shadow, chrome edge, black front.
+    painter.setPen(Qt.PenStyle.NoPen)
+    if shadow:
+        glow = QRadialGradient(body.center() + QPointF(0, h * 0.48), w * 0.7)
+        glow.setColorAt(0, QColor(0, 0, 0, 70))
+        glow.setColorAt(1, QColor(0, 0, 0, 0))
+        painter.setBrush(glow)
+        painter.drawEllipse(QRectF(body.left() - w * 0.08, body.bottom() - h * 0.05, w * 1.16, h * 0.1))
+    painter.setBrush(_gradient(body, (0, "#f4f4f4"), (0.5, "#9d9d9d"), (1, "#e6e6e6"), horizontal=True))
+    painter.drawRoundedRect(body, w * 0.09, w * 0.09)
+    edge = max(1.6, w * 0.012)
+    front = body.adjusted(edge, edge, -edge, -edge)
+    painter.setBrush(_gradient(front, (0, "#3c3c3c"), (0.08, "#1b1b1b"), (1, "#050505")))
+    painter.drawRoundedRect(front, w * 0.085, w * 0.085)
+    # Screen.
+    screen = QRectF(front.left() + w * 0.09, front.top() + w * 0.11, w * 0.80, w * 0.62)
+    painter.setPen(QPen(QColor("#000000"), max(1.2, w * 0.008)))
+    painter.setBrush(_gradient(screen, (0, "#f6fbff"), (0.18, "#d9ecfb"), (1, "#a9cbe8")))
+    painter.drawRect(screen)
+    title_bar = QRectF(screen.left(), screen.top(), screen.width(), screen.height() * 0.16)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(_gradient(title_bar, (0, "#fdfdfd"), (1, "#c4c9cf")))
+    painter.drawRect(title_bar)
+    font = QFont(base_font)
+    font.setPixelSize(max(8, int(screen.height() * 0.1)))
+    font.setBold(True)
+    painter.setFont(font)
+    painter.setPen(QColor("#111111"))
+    if name:
+        painter.drawText(title_bar, Qt.AlignmentFlag.AlignCenter, name)
+    font.setPixelSize(max(8, int(screen.height() * 0.1)))
+    font.setBold(False)
+    painter.setFont(font)
+    if line:
         body_text = screen.adjusted(6, title_bar.height() + 6, -6, -6)
-        painter.drawText(body_text, Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, self.line)
-        # Glass: a soft highlight over the upper half of the front.
-        upper = QRectF(front.left(), front.top(), front.width(), front.height() * 0.5)
-        glass = QPainterPath()
-        glass.addRoundedRect(upper, w * 0.085, w * 0.085)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(_gradient(upper, (0, QColor(255, 255, 255, 46)), (0.6, QColor(255, 255, 255, 10)),
-                                   (1, QColor(255, 255, 255, 0))))
-        painter.drawPath(glass)
-        # Click wheel.
-        radius = w * 0.31
-        center = QPointF(front.center().x(), front.bottom() - w * 0.06 - radius)
-        wheel = QRectF(center.x() - radius, center.y() - radius, 2 * radius, 2 * radius)
-        painter.setPen(QPen(QColor("#3b3b3b"), 1))
-        painter.setBrush(_gradient(wheel, (0, "#2a2a2a"), (1, "#151515")))
-        painter.drawEllipse(wheel)
-        inner = radius * 0.38
-        painter.setBrush(_gradient(wheel, (0, "#1d1d1d"), (1, "#2c2c2c")))
-        painter.drawEllipse(center, inner, inner)
-        label_font = QFont(self.font())
+        painter.drawText(body_text, Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, line)
+    # Glass: a soft highlight over the upper half of the front.
+    upper = QRectF(front.left(), front.top(), front.width(), front.height() * 0.5)
+    glass = QPainterPath()
+    glass.addRoundedRect(upper, w * 0.085, w * 0.085)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(_gradient(upper, (0, QColor(255, 255, 255, 46)), (0.6, QColor(255, 255, 255, 10)),
+                               (1, QColor(255, 255, 255, 0))))
+    painter.drawPath(glass)
+    # Click wheel.
+    radius = w * 0.31
+    center = QPointF(front.center().x(), front.bottom() - w * 0.06 - radius)
+    wheel = QRectF(center.x() - radius, center.y() - radius, 2 * radius, 2 * radius)
+    painter.setPen(QPen(QColor("#3b3b3b"), 1))
+    painter.setBrush(_gradient(wheel, (0, "#2a2a2a"), (1, "#151515")))
+    painter.drawEllipse(wheel)
+    inner = radius * 0.38
+    painter.setBrush(_gradient(wheel, (0, "#1d1d1d"), (1, "#2c2c2c")))
+    painter.drawEllipse(center, inner, inner)
+    if radius >= 20:
+        label_font = QFont(base_font)
         label_font.setPixelSize(max(7, int(radius * 0.16)))
         label_font.setBold(True)
         painter.setFont(label_font)
         painter.setPen(QColor("#c9c9c9"))
         painter.drawText(QRectF(center.x() - radius, center.y() - radius * 0.92, 2 * radius, radius * 0.3),
                          Qt.AlignmentFlag.AlignCenter, "MENU")
-        painter.setBrush(QColor("#c9c9c9"))
-        painter.setPen(Qt.PenStyle.NoPen)
-        self._transport(painter, center, radius)
+    painter.setBrush(QColor("#c9c9c9"))
+    painter.setPen(Qt.PenStyle.NoPen)
+    _transport(painter, center, radius)
+    painter.restore()
 
-    @staticmethod
-    def _transport(painter: QPainter, c: QPointF, r: float) -> None:
-        t = r * 0.07
 
-        def triangle(x: float, y: float, direction: int) -> None:
-            path = QPainterPath()
-            path.moveTo(x, y - t)
-            path.lineTo(x + direction * t * 1.3, y)
-            path.lineTo(x, y + t)
-            path.closeSubpath()
-            painter.drawPath(path)
+def _transport(painter: QPainter, c: QPointF, r: float) -> None:
+    t = r * 0.07
 
-        for direction, x in ((1, c.x() + r * 0.62), (-1, c.x() - r * 0.62)):
-            triangle(x - direction * t * 0.9, c.y(), direction)
-            triangle(x + direction * t * 0.4, c.y(), direction)
-            painter.drawRect(QRectF(x + direction * t * 1.7 - (t * 0.35 if direction > 0 else 0), c.y() - t, t * 0.35, 2 * t))
-        y = c.y() + r * 0.7
-        triangle(c.x() - t * 1.6, y, 1)
-        painter.drawRect(QRectF(c.x() + t * 0.3, y - t, t * 0.4, 2 * t))
-        painter.drawRect(QRectF(c.x() + t * 1.0, y - t, t * 0.4, 2 * t))
+    def triangle(x: float, y: float, direction: int) -> None:
+        path = QPainterPath()
+        path.moveTo(x, y - t)
+        path.lineTo(x + direction * t * 1.3, y)
+        path.lineTo(x, y + t)
+        path.closeSubpath()
+        painter.drawPath(path)
+
+    for direction, x in ((1, c.x() + r * 0.62), (-1, c.x() - r * 0.62)):
+        triangle(x - direction * t * 0.9, c.y(), direction)
+        triangle(x + direction * t * 0.4, c.y(), direction)
+        painter.drawRect(QRectF(x + direction * t * 1.7 - (t * 0.35 if direction > 0 else 0), c.y() - t, t * 0.35, 2 * t))
+    y = c.y() + r * 0.7
+    triangle(c.x() - t * 1.6, y, 1)
+    painter.drawRect(QRectF(c.x() + t * 0.3, y - t, t * 0.4, 2 * t))
+    painter.drawRect(QRectF(c.x() + t * 1.0, y - t, t * 0.4, 2 * t))
 
 
 # --- capacity bar ----------------------------------------------------------------------------------

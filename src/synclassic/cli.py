@@ -445,6 +445,21 @@ def cmd_ipod(args) -> int:
     return 0
 
 
+def cmd_install_app(args) -> int:
+    from synclassic.macapp import build_app, default_destination
+
+    if sys.platform != "darwin" and not args.dest:
+        say("install-app makes a macOS app. On other systems run: synclassic-gui")
+        return 1
+    destination = pathlib.Path(args.dest).expanduser() if args.dest else default_destination()
+    destination.mkdir(parents=True, exist_ok=True)
+    app = build_app(destination)
+    say(f"Made {app}")
+    say("Open it from Finder (Applications) or Spotlight, and drag it to your Dock to keep it there.")
+    say("Run this again after moving your synclassic folder or making a new .venv.")
+    return 0
+
+
 def cmd_doctor(args) -> int:
     from synclassic.downloader import check_tools
 
@@ -543,6 +558,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("gui", help="open the Synclassic app window")
     p.set_defaults(func=lambda args: __import__("synclassic.gui.app", fromlist=["main"]).main())
+
+    p = sub.add_parser("install-app", help="make a double-clickable Synclassic.app (macOS)")
+    p.add_argument("--dest", help="folder to put it in (default ~/Applications)")
+    p.set_defaults(func=cmd_install_app)
 
     p = sub.add_parser("doctor", help="check that everything needed is installed")
     p.set_defaults(func=cmd_doctor)

@@ -16,6 +16,7 @@ dependencies = [
     "yt-dlp[default]>=2025.11.12",
     "PySide6>=6.7",
     "Pillow>=10",
+    "pyobjc-framework-Cocoa>=10; sys_platform == 'darwin'",
 ]
 
 [project.optional-dependencies]

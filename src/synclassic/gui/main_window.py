@@ -145,6 +145,8 @@ class MainWindow(QMainWindow):
         self.stop_action.setEnabled(False)
         self.sync_action = action("Sync iPod", self.sync_ipod, QKeySequence("Ctrl+Shift+S"),
                                   "Put your playlists on your iPod (shows what will change first)")
+        self.update_sync_action = action("Update && Sync", self.update_and_sync, QKeySequence("Ctrl+Shift+U"),
+                                         "Check Spotify, download what's new, then sync your iPod")
         self.ipod_action = action("Check iPod", self.check_ipod, None,
                                   "Read your iPod and check that Synclassic can manage it (changes nothing)")
         self.eject_action = action("Eject iPod", self.eject_ipod, QKeySequence("Ctrl+E"))
@@ -160,7 +162,7 @@ class MainWindow(QMainWindow):
                     self.settings_action):
             file_menu.addSeparator() if act is None else file_menu.addAction(act)
         ipod_menu = bar.addMenu("iPod")
-        for act in (self.sync_action, self.ipod_action, None, self.eject_action):
+        for act in (self.update_sync_action, self.sync_action, self.ipod_action, None, self.eject_action):
             ipod_menu.addSeparator() if act is None else ipod_menu.addAction(act)
         view_menu = bar.addMenu("View")
         view_menu.addAction(self.log_action)
@@ -212,7 +214,7 @@ class MainWindow(QMainWindow):
         search_box.addWidget(caption)
         row.addLayout(search_box)
         row.addSpacing(6)
-        row.addWidget(self._glossy("sync", "Sync iPod", self.sync_action))
+        row.addWidget(self._glossy("sync", "Update & Sync", self.update_sync_action, 36))
         # The LCD is the status display; these names are what the rest of the window updates.
         self.status_label = self.lcd.primary
         self.progress = self.lcd.bar
@@ -359,15 +361,18 @@ class MainWindow(QMainWindow):
         form.addWidget(self.ipod_details)
         info.addWidget(summary)
         buttons = QHBoxLayout()
-        self.ipod_sync_button = QPushButton("Sync")
+        self.ipod_sync_button = QPushButton("Update && Sync")
         self.ipod_sync_button.setProperty("aqua", True)
-        self.ipod_sync_button.setMinimumWidth(110)
-        self.ipod_sync_button.clicked.connect(self.sync_ipod)
+        self.ipod_sync_button.setMinimumWidth(130)
+        self.ipod_sync_button.clicked.connect(self.update_and_sync)
+        sync_only = QPushButton("Sync Only")
+        sync_only.clicked.connect(lambda: self.sync_ipod())
         check = QPushButton("Check iPod")
         check.clicked.connect(self.check_ipod)
         eject = QPushButton("Eject")
         eject.clicked.connect(self.eject_ipod)
         buttons.addWidget(self.ipod_sync_button)
+        buttons.addWidget(sync_only)
         buttons.addWidget(check)
         buttons.addWidget(eject)
         buttons.addStretch(1)
@@ -770,7 +775,22 @@ class MainWindow(QMainWindow):
         self.status_label.setText("Reading your iPod…")
         run_in_background(self, work, show, lambda error: (self.ipod_action.setEnabled(True), self._job_failed(error)))
 
-    def sync_ipod(self) -> None:
+    def update_and_sync(self) -> None:
+        if self.job is not None:
+            return
+
+        def then():
+            self._detect_ipod()
+            if self.ipod is None:
+                self.status_label.setText("Updated. Plug in your iPod to sync.")
+                return
+            self.sync_ipod(quick=True)
+
+        self.start_update(None, after=then)
+
+    def sync_ipod(self, quick: bool = False) -> None:
+        """Preview, confirm and sync. quick=True (Update & Sync) skips the confirmation when the
+        sync only adds things; removals and playlist take-overs are always shown first."""
         from synclassic.ipod import sync as ipod_sync
         from synclassic.ipod.check import check, format_report
         from synclassic.ipod.device import find_ipods
@@ -807,10 +827,19 @@ class MainWindow(QMainWindow):
             plan = value
             lines = plan.summary()
             if not plan.has_changes:
+                if quick:
+                    self.status_label.setText("Your iPod is up to date")
+                    return
                 QMessageBox.information(self, "iPod is up to date", "\n".join(lines[1:]))
                 return
             if not plan.fits:
                 QMessageBox.warning(self, "Not enough space", "\n".join(lines))
+                return
+            only_adds = not plan.remove_songs and not plan.remove_playlists and all(
+                p.action != "take over" for p in plan.playlists
+            )
+            if quick and only_adds:
+                self._apply_sync(plan)
                 return
             box = QMessageBox(QMessageBox.Icon.Question, "Sync iPod", "\n".join(lines[:1] + lines[1:12]), parent=self)
             box.setInformativeText("The iPod's database is backed up first. Sync now?")
@@ -895,7 +924,10 @@ class MainWindow(QMainWindow):
         if self.current_key not in (None, ATTENTION, IPOD):
             self.start_update([self.current_key])
 
-    def start_update(self, playlist_ids: list[int] | None, retry_failed: bool = False, refresh_sources: bool = True) -> None:
+    def start_update(
+        self, playlist_ids: list[int] | None, retry_failed: bool = False, refresh_sources: bool = True, after=None
+    ) -> None:
+        """Check playlists and download. `after()` runs once it finishes (unless it was stopped)."""
         if self.job is not None:
             return
         path = self.library_path
@@ -930,7 +962,12 @@ class MainWindow(QMainWindow):
             finally:
                 library.close()
 
-        self._run_job("Updating…", work)
+        def finished(result):
+            stopped = isinstance(result, dict) and result.get("summary", "").startswith("Stopped")
+            if after is not None and not stopped and result is not None:
+                QTimer.singleShot(0, after)  # once this job is fully finished
+
+        self._run_job("Updating…", work, finished)
 
     def _full_reader(self):
         from synclassic.sources.full_reader import available
@@ -962,7 +999,7 @@ class MainWindow(QMainWindow):
         self.lcd.secondary.setText("")
         self.progress.setRange(0, 0)
         self.progress.show()
-        for action in (self.update_action, self.add_action, self.sync_action):
+        for action in (self.update_action, self.add_action, self.sync_action, self.update_sync_action):
             action.setEnabled(False)
         self.update_one.setEnabled(False)
         self.stop_action.setEnabled(True)
@@ -971,7 +1008,7 @@ class MainWindow(QMainWindow):
         self.job = None
         self.progress.hide()
         self.status_label.setText(text)
-        for action in (self.update_action, self.add_action, self.sync_action):
+        for action in (self.update_action, self.add_action, self.sync_action, self.update_sync_action):
             action.setEnabled(True)
         self.update_one.setEnabled(True)
         self.stop_action.setEnabled(False)

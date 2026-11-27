@@ -128,3 +128,46 @@ def test_sync_ipod_from_window(app, monkeypatch, tmp_path):
     assert [p.name for p in itunesdb.playlists(db) if p.name == "Gym"] == ["Gym"]
     assert window.status_label.text() == "iPod synced."
     window.close()
+
+
+def test_update_and_sync_runs_both_without_asking_when_it_only_adds(app, monkeypatch, tmp_path):
+    from PySide6.QtWidgets import QMessageBox
+
+    from synclassic.gui.main_window import MainWindow
+    from synclassic.ipod import itunesdb
+    from synclassic.matcher import Matcher
+    from synclassic.sources import SourceSpec
+    from tests.test_ipod_read import fake_ipod, load
+
+    root = fake_ipod(tmp_path, load("captured-album-index-36.b64"))
+    monkeypatch.setenv("SYNCLASSIC_IPOD", str(root))
+
+    def fake_download(video_id, destination, settings):
+        path = destination.with_suffix(".m4a")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        make_audio(path)
+        return downloader.DownloadResult(path, "mp4a.40.2", 128.0, converted=False)
+
+    monkeypatch.setattr(downloader, "download", fake_download)
+    monkeypatch.setattr(downloader, "check_tools", lambda: [])
+    monkeypatch.setattr(tagging, "fetch_cover", lambda url: None)
+    monkeypatch.setattr(update, "Matcher", lambda: Matcher(search))
+    source = SourcePlaylist("Road Trip", [Track("One More Time", ["Daft Punk"], duration_ms=320_000, spotify_id="r" * 22)])
+    monkeypatch.setattr(update, "read_source", lambda spec, client, full_reader=None: source)
+    dialogs = []
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: dialogs.append(self.text()) or QMessageBox.StandardButton.Cancel)
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: dialogs.append("eject?") or QMessageBox.StandardButton.No))
+
+    library = Library(config.app_dir() / "library.db")
+    library.add_playlist("Road Trip", SourceSpec("spotify", "https://open.spotify.com/playlist/37i9dQZF1DX4o1oenSJRJd"))
+    library.close()
+
+    window = MainWindow()
+    window.update_sync_action.trigger()
+    assert wait_until(app, lambda: window.job is not None)
+    # Update, then (after it) the iPod read and the sync.
+    assert wait_until(app, lambda: window.status_label.text() == "iPod synced." and window.job is None, 40)
+    assert dialogs == ["eject?"]  # no confirmation: the sync only added a song and a playlist
+    db = itunesdb.parse((root / "iPod_Control" / "iTunes" / "iTunesDB").read_bytes())
+    assert "Road Trip" in [p.name for p in itunesdb.playlists(db)]
+    window.close()
