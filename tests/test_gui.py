@@ -537,3 +537,29 @@ def test_fix_album_art_from_the_window(app, monkeypatch, tmp_path):
     left = [a for a in art_fix.scan(ipod_at(root)) if a.title.startswith("Album ")]
     assert left == []
     window.close()
+
+
+def test_cover_flow_moves_and_shows_the_album(app):
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QImage, QKeyEvent
+    from PySide6.QtCore import QEvent
+
+    from synclassic.gui.ipod_views import AlbumsPage
+    from synclassic.ipod.browse import Album, Contents, Song
+
+    songs = {n: Song(id=n, dbid=n, title=f"Song {n}", artist="A", album=f"Album {n}", album_artist="A", genre="",
+                     length_ms=1000, track_number=1, disc_number=1, year=2000, plays=0, rating=0, added=None,
+                     size=1, kind="song", path="") for n in range(3)}
+    albums = [Album(f"Album {n}", "A", [n]) for n in range(3)]
+    contents = Contents("iPod", songs, [], {})
+    contents.albums = lambda: albums
+    page = AlbumsPage()
+    page.resize(800, 600)
+    page.set_contents(contents)
+    page.show_view("flow")
+    page.set_cover(1, QImage(50, 50, QImage.Format.Format_RGB32))
+    page.flow.view.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Right, Qt.KeyboardModifier.NoModifier))
+    assert page.flow.view.current() == 1 and page.songs.song_ids_in_view() == [1]
+    page.filter("Album 2")
+    assert page.flow.view.visible == [2]
+    page.grab()  # draws without errors

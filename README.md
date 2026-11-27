@@ -223,6 +223,9 @@ What a sync does:
 - Removes songs **Synclassic added** once no playlist uses them. Music you put on the iPod
   some other way is never deleted, and your other playlists are left as they are.
 
+**Cover Flow**: the iPod's Albums page shows its covers as a grid or in Cover Flow (click,
+drag, scroll or use the arrow keys; the album's songs show underneath).
+
 **Managing the iPod in the app.** Plug it in and it appears under DEVICES with Music, Albums,
 Artists, Genres and all its playlists. Right-click or drag, like iTunes:
 

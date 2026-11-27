@@ -1701,7 +1701,7 @@ class MainWindow(QMainWindow):
             if self.ipod_contents is not contents:
                 return
             for row, image in images:
-                self.albums_page.grid.set_cover(row, image)
+                self.albums_page.set_cover(row, image)
 
         run_in_background(self, work, done, lambda error: None)
 
@@ -1711,7 +1711,7 @@ class MainWindow(QMainWindow):
         if index == 3:
             self.ipod_songs.proxy.set_query(text)
         elif index == 4:
-            self.albums_page.grid.filter(text)
+            self.albums_page.filter(text)
             self.albums_page.songs.proxy.set_query(text)
         elif index in (5, 6):
             (self.artists_page if index == 5 else self.genres_page).filter(text)

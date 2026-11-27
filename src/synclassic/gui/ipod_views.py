@@ -359,22 +359,69 @@ class AlbumGrid(QListView):
 
 
 class AlbumsPage(QSplitter):
-    """Cover grid on top, the chosen album's songs underneath."""
+    """Covers on top (a grid, or Cover Flow), the chosen album's songs underneath."""
 
     def __init__(self, parent=None):
+        from PySide6.QtWidgets import QHBoxLayout, QPushButton, QStackedWidget, QVBoxLayout, QWidget
+
+        from synclassic.gui.coverflow import CoverFlow
+
         super().__init__(Qt.Orientation.Vertical, parent)
+        top = QWidget()
+        column = QVBoxLayout(top)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(0)
+        switch = QHBoxLayout()
+        switch.setContentsMargins(8, 4, 8, 4)
+        switch.addStretch(1)
+        self.view_buttons = {}
+        for name, label in (("grid", "Grid"), ("flow", "Cover Flow")):
+            button = QPushButton(label)
+            button.setCheckable(True)
+            button.setFixedHeight(22)
+            button.clicked.connect(lambda _=False, n=name: self.show_view(n))
+            switch.addWidget(button)
+            self.view_buttons[name] = button
+        column.addLayout(switch)
+        self.stack = QStackedWidget()
         self.grid = AlbumGrid()
+        self.flow = CoverFlow()
+        self.stack.addWidget(self.grid)
+        self.stack.addWidget(self.flow)
+        column.addWidget(self.stack, 1)
         self.songs = SongTable()
-        self.addWidget(self.grid)
+        self.addWidget(top)
         self.addWidget(self.songs)
         self.setStretchFactor(0, 3)
         self.setStretchFactor(1, 2)
         self.contents: Contents | None = None
         self.grid.album_chosen.connect(self._show_album)
+        self.flow.current_changed.connect(lambda index: self._show_album(self.grid.albums[index]))
+        self.show_view("grid")
+
+    def show_view(self, name: str) -> None:
+        self.stack.setCurrentWidget(self.flow if name == "flow" else self.grid)
+        for key, button in self.view_buttons.items():
+            button.setChecked(key == name)
+        if name == "flow":
+            self.flow.view.setFocus()
+            current = self.flow.view.current()
+            if current is not None and self.grid.albums:
+                self._show_album(self.grid.albums[current])
+
+    def set_cover(self, row: int, image: QImage) -> None:
+        self.grid.set_cover(row, image)
+        self.flow.set_image(row, image)
+
+    def filter(self, text: str) -> None:
+        self.grid.filter(text)
+        self.flow.filter(text)
 
     def set_contents(self, contents: Contents) -> None:
         self.contents = contents
-        self.grid.set_albums(contents.albums())
+        albums = contents.albums()
+        self.grid.set_albums(albums)
+        self.flow.set_items([(album.title, album.artist) for album in albums])
         self.songs.set_songs([])
 
     def _show_album(self, album: Album) -> None:
