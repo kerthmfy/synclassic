@@ -49,7 +49,7 @@ class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
-        self.setMinimumWidth(560)
+        self.setMinimumWidth(680)
         self.settings: Settings = load_settings()
         layout = QVBoxLayout(self)
 

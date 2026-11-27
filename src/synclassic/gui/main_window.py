@@ -1,4 +1,4 @@
-"""The main Synclassic window."""
+"""The main Synclassic window, in the style of iTunes 7 on Mac OS X (see gui/theme.py)."""
 
 from __future__ import annotations
 
@@ -6,27 +6,24 @@ import pathlib
 import subprocess
 import sys
 
-from PySide6.QtCore import QSize, Qt, QTimer, QUrl
-from PySide6.QtGui import QAction, QColor, QDesktopServices, QKeySequence
+from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtGui import QAction, QDesktopServices, QFont, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
     QLabel,
-    QListWidget,
-    QListWidgetItem,
+    QLineEdit,
     QMainWindow,
     QMenu,
     QMessageBox,
     QPlainTextEdit,
-    QProgressBar,
-    QSizePolicy,
     QPushButton,
     QSplitter,
     QStackedWidget,
-    QToolBar,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -35,10 +32,23 @@ from PySide6.QtWidgets import (
 
 from synclassic import __version__, playlist_writer
 from synclassic.config import app_dir, load_settings
+from synclassic.gui import theme
 from synclassic.gui.add_dialog import AddDialog
 from synclassic.gui.full_reader_bridge import FullReaderBridge
 from synclassic.gui.picker_dialog import fmt_time, open_picker
 from synclassic.gui.settings_dialog import SettingsDialog
+from synclassic.gui.widgets import (
+    COUNT_ROLE,
+    ICON_ROLE,
+    SECTION_ROLE,
+    CapacityBar,
+    GlossyButton,
+    GradientBar,
+    IPodGraphic,
+    LcdDisplay,
+    SourceListDelegate,
+    StatusPillDelegate,
+)
 from synclassic.gui.workers import Task, run_in_background
 from synclassic.library import Library, LibraryPlaylist, LibraryTrack
 from synclassic.sources import spotify_auth
@@ -46,17 +56,17 @@ from synclassic.sources.spotify_api import SpotifyClient
 from synclassic.update import add_inputs, download_missing, finalize, refresh_playlist
 
 ATTENTION = "__attention__"
+IPOD = "__ipod__"
 ATTENTION_STATUSES = ("review", "unmatched", "failed")
 
 STATUS = {
-    # status: (label, color)
-    "downloaded": ("Ready", "#2e9d4a"),
-    "local": ("Mac file", "#2f7bd8"),
-    "review": ("Check", "#e08a00"),
-    "pending": ("Waiting", "#8a8a8a"),
-    "unmatched": ("Not found", "#d93b3b"),
-    "failed": ("Failed", "#d93b3b"),
-    "missing": ("File missing", "#d93b3b"),
+    "downloaded": "Ready",
+    "local": "Mac file",
+    "review": "Check",
+    "pending": "Waiting",
+    "unmatched": "Not found",
+    "failed": "Failed",
+    "missing": "File missing",
 }
 
 
@@ -73,73 +83,153 @@ def reveal_in_finder(path: pathlib.Path) -> None:
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path if path.is_dir() else path.parent)))
 
 
+def _human_size(size: int) -> str:
+    return f"{size / 1000**3:.1f} GB" if size >= 1000**3 else f"{size / 1000**2:.0f} MB"
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Synclassic")
         self.resize(1180, 740)
+        self.setMinimumSize(900, 560)
         self.library_path = app_dir() / "library.db"
         self.library = Library(self.library_path)
         self.job = None  # the running background update, if any
-        self.current_key: object = None  # selected sidebar entry: playlist id or ATTENTION
+        self.current_key: object = None  # selected source: playlist id, ATTENTION or IPOD
         self.reader_bridge = FullReaderBridge(self)
+        self.ipod = None  # the connected iPod, if any
+        self._ipod_root = None
 
-        self._build_toolbar()
-        self._build_body()
-        self._build_status_bar()
+        self._build_actions()
+        self._build_menus()
+        central = QWidget()
+        layout = QVBoxLayout(central)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self._build_toolbar())
+        layout.addWidget(self._build_body(), 1)
+        layout.addWidget(self._build_bottom_bar())
+        self.setCentralWidget(central)
 
         # Refresh views at most a few times per second while downloads report progress.
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
         self._refresh_timer.setInterval(300)
         self._refresh_timer.timeout.connect(self.refresh)
+        # Notice when an iPod is plugged in or ejected.
+        self._ipod_timer = QTimer(self)
+        self._ipod_timer.setInterval(3000)
+        self._ipod_timer.timeout.connect(self._detect_ipod)
+        self._ipod_timer.start()
+        self._detect_ipod()
 
         self.refresh()
 
+    # --- actions and menus ---------------------------------------------------------------------
+
+    def _build_actions(self) -> None:
+        def action(text, slot, shortcut=None, tip=None):
+            act = QAction(text, self)
+            act.triggered.connect(slot)
+            if shortcut:
+                act.setShortcut(shortcut)
+            if tip:
+                act.setToolTip(tip)
+            return act
+
+        self.add_action = action("Add Playlists…", self.add_playlists, QKeySequence.StandardKey.New)
+        self.update_action = action("Update All", lambda: self.start_update(None), QKeySequence("Ctrl+R"),
+                                    "Check every playlist for new songs and download them")
+        self.stop_action = action("Stop", self.stop_job, QKeySequence("Ctrl+."))
+        self.stop_action.setEnabled(False)
+        self.sync_action = action("Sync iPod", self.sync_ipod, QKeySequence("Ctrl+Shift+S"),
+                                  "Put your playlists on your iPod (shows what will change first)")
+        self.ipod_action = action("Check iPod", self.check_ipod, None,
+                                  "Read your iPod and check that Synclassic can manage it (changes nothing)")
+        self.eject_action = action("Eject iPod", self.eject_ipod, QKeySequence("Ctrl+E"))
+        self.folder_action = action("Show Music Folder", lambda: reveal_in_finder(load_settings().music_path))
+        self.settings_action = action("Settings…", self.open_settings, QKeySequence.StandardKey.Preferences)
+        self.log_action = action("Show Activity", self._toggle_log, QKeySequence("Ctrl+L"))
+        self.log_action.setCheckable(True)
+
+    def _build_menus(self) -> None:
+        bar = self.menuBar()
+        file_menu = bar.addMenu("File")
+        for act in (self.add_action, None, self.update_action, self.stop_action, None, self.folder_action, None,
+                    self.settings_action):
+            file_menu.addSeparator() if act is None else file_menu.addAction(act)
+        ipod_menu = bar.addMenu("iPod")
+        for act in (self.sync_action, self.ipod_action, None, self.eject_action):
+            ipod_menu.addSeparator() if act is None else ipod_menu.addAction(act)
+        view_menu = bar.addMenu("View")
+        view_menu.addAction(self.log_action)
+        help_menu = bar.addMenu("Help")
+        about = QAction("About Synclassic", self)
+        about.triggered.connect(lambda: QMessageBox.about(
+            self, "About Synclassic", f"<b>Synclassic {__version__}</b><br>Your Spotify playlists on your iPod."))
+        help_menu.addAction(about)
+
     # --- layout -----------------------------------------------------------------------------
 
-    def _build_toolbar(self) -> None:
-        bar = QToolBar("Main")
-        bar.setMovable(False)
-        bar.setIconSize(QSize(18, 18))
-        bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        self.addToolBar(bar)
-        self.add_action = QAction("＋  Add playlists", self)
-        self.add_action.setShortcut(QKeySequence.StandardKey.New)
-        self.add_action.triggered.connect(self.add_playlists)
-        self.update_action = QAction("⟳  Update all", self)
-        self.update_action.setShortcut(QKeySequence("Ctrl+R"))
-        self.update_action.setToolTip("Check every playlist for new songs and download them")
-        self.update_action.triggered.connect(lambda: self.start_update(None))
-        self.stop_action = QAction("■  Stop", self)
-        self.stop_action.setEnabled(False)
-        self.stop_action.triggered.connect(self.stop_job)
-        self.sync_action = QAction("⇅  Sync iPod", self)
-        self.sync_action.setToolTip("Put your playlists on your iPod (shows what will change first)")
-        self.sync_action.triggered.connect(self.sync_ipod)
-        self.ipod_action = QAction("Check iPod", self)
-        self.ipod_action.setToolTip("Read your iPod and check that Synclassic can manage it (changes nothing)")
-        self.ipod_action.triggered.connect(self.check_ipod)
-        self.folder_action = QAction("Show music folder", self)
-        self.folder_action.triggered.connect(lambda: reveal_in_finder(load_settings().music_path))
-        self.settings_action = QAction("Settings", self)
-        self.settings_action.setShortcut(QKeySequence.StandardKey.Preferences)
-        self.settings_action.triggered.connect(self.open_settings)
-        for action in (self.add_action, self.update_action, self.sync_action, self.stop_action):
-            bar.addAction(action)
-        spacer = QWidget()
-        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        bar.addWidget(spacer)
-        bar.addAction(self.ipod_action)
-        bar.addAction(self.folder_action)
-        bar.addAction(self.settings_action)
+    def _glossy(self, symbol: str, label: str, action: QAction, diameter: int = 34) -> GlossyButton:
+        button = GlossyButton(symbol, label, diameter)
+        button.clicked.connect(action.trigger)
+        button.setToolTip(action.toolTip() or label)
+        button.setEnabled(action.isEnabled())
+        action.changed.connect(lambda: button.setEnabled(action.isEnabled()))
+        return button
 
-    def _build_body(self) -> None:
+    def _build_toolbar(self) -> QWidget:
+        bar = GradientBar(theme.TOOLBAR_TOP, theme.TOOLBAR_BOTTOM, line_at_bottom=True)
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(12, 6, 12, 6)
+        row.setSpacing(4)
+        for symbol, label, act in (("plus", "Add", self.add_action), ("refresh", "Update", self.update_action),
+                                   ("stop", "Stop", self.stop_action)):
+            row.addWidget(self._glossy(symbol, label, act))
+        row.addStretch(1)
+        self.lcd = LcdDisplay()
+        self.lcd.setFixedWidth(440)
+        row.addWidget(self.lcd)
+        row.addStretch(1)
+        self.search = QLineEdit()
+        self.search.setProperty("search", True)
+        self.search.setPlaceholderText("Search")
+        self.search.setFixedWidth(170)
+        self.search.setClearButtonEnabled(True)
+        self.search.textChanged.connect(lambda *_: self._apply_search())
+        search_box = QVBoxLayout()
+        search_box.setSpacing(2)
+        search_box.addStretch(1)
+        search_box.addWidget(self.search)
+        caption = QLabel("Search")
+        caption.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        small = QFont(caption.font())
+        small.setPixelSize(10)
+        caption.setFont(small)
+        caption.setStyleSheet("background: transparent;")
+        search_box.addWidget(caption)
+        row.addLayout(search_box)
+        row.addSpacing(6)
+        row.addWidget(self._glossy("sync", "Sync iPod", self.sync_action))
+        # The LCD is the status display; these names are what the rest of the window updates.
+        self.status_label = self.lcd.primary
+        self.progress = self.lcd.bar
+        return bar
+
+    def _build_body(self) -> QWidget:
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setHandleWidth(1)
 
-        self.sidebar = QListWidget()
-        self.sidebar.setMinimumWidth(220)
-        self.sidebar.setSpacing(2)
+        self.sidebar = QTreeWidget()
+        self.sidebar.setHeaderHidden(True)
+        self.sidebar.setRootIsDecorated(False)
+        self.sidebar.setIndentation(0)
+        self.sidebar.setItemDelegate(SourceListDelegate(self.sidebar))
+        self.sidebar.setFrameShape(QFrame.Shape.NoFrame)
+        self.sidebar.setMinimumWidth(190)
+        self.sidebar.setStyleSheet(f"QTreeWidget {{ background: {theme.SOURCE_LIST}; border: none; }}")
         self.sidebar.currentItemChanged.connect(self._sidebar_changed)
         self.sidebar.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.sidebar.customContextMenuRequested.connect(self._sidebar_menu)
@@ -147,88 +237,180 @@ class MainWindow(QMainWindow):
 
         right = QWidget()
         right_layout = QVBoxLayout(right)
-        right_layout.setContentsMargins(12, 8, 12, 0)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(0)
+
+        # Thin strip above the song list: playlist name, where it comes from, Update.
+        self.header_strip = GradientBar("#f4f4f4", "#dcdcdc", line_at_bottom=True)
+        strip = QHBoxLayout(self.header_strip)
+        strip.setContentsMargins(12, 5, 10, 5)
+        text = QVBoxLayout()
+        text.setSpacing(0)
         self.title = QLabel()
-        self.title.setStyleSheet("font-size: 22px; font-weight: 700;")
+        title_font = QFont(self.font())
+        title_font.setPixelSize(15)
+        title_font.setBold(True)
+        self.title.setFont(title_font)
         self.subtitle = QLabel()
-        self.subtitle.setStyleSheet("color: palette(placeholder-text);")
+        self.subtitle.setStyleSheet("color: #5b5b5b; font-size: 11px;")
         self.subtitle.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        for label in (self.title, self.subtitle):
+            label.setStyleSheet(label.styleSheet() + "background: transparent;")
+        text.addWidget(self.title)
+        text.addWidget(self.subtitle)
+        strip.addLayout(text, 1)
+        self.update_one = QPushButton("Update Playlist")
+        self.update_one.clicked.connect(self._update_current)
+        strip.addWidget(self.update_one)
+        right_layout.addWidget(self.header_strip)
         self.note = QLabel()
         self.note.setWordWrap(True)
-        self.note.setStyleSheet("color: #e08a00;")
-        header_row = QHBoxLayout()
-        header_text = QVBoxLayout()
-        header_text.addWidget(self.title)
-        header_text.addWidget(self.subtitle)
-        header_row.addLayout(header_text, 1)
-        self.update_one = QPushButton("⟳  Update")
-        self.update_one.clicked.connect(self._update_current)
-        header_row.addWidget(self.update_one, 0, Qt.AlignmentFlag.AlignTop)
-        right_layout.addLayout(header_row)
+        self.note.setStyleSheet("background: #fff6d5; color: #6b4b00; border-bottom: 1px solid #e3cf8a; padding: 4px 12px;")
         right_layout.addWidget(self.note)
 
         self.table = QTreeWidget()
         self.table.setRootIsDecorated(False)
         self.table.setAlternatingRowColors(True)
         self.table.setUniformRowHeights(True)
+        self.table.setFrameShape(QFrame.Shape.NoFrame)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.table.setHeaderLabels(["#", "Title", "Artist", "Album", "Time", "Status"])
+        self.table.setHeaderLabels(["#", "Name", "Artist", "Album", "Time", "Status"])
+        self.table.setItemDelegateForColumn(5, StatusPillDelegate(self.table))
         header = self.table.header()
         header.setStretchLastSection(False)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         for column in (1, 2, 3):
             header.setSectionResizeMode(column, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
+        header.resizeSection(5, 118)
         self.table.itemDoubleClicked.connect(lambda *_: self.pick_selected())
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._table_menu)
 
-        empty = QWidget()
-        empty_layout = QVBoxLayout(empty)
-        empty_layout.addStretch(1)
-        welcome = QLabel("Add your first playlist")
-        welcome.setStyleSheet("font-size: 20px; font-weight: 600;")
-        welcome.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        explain = QLabel("Paste a Spotify link, pick from your Spotify account, or import an .m3u8 / .csv file.")
-        explain.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        explain.setStyleSheet("color: palette(placeholder-text);")
-        add_button = QPushButton("＋  Add playlists")
-        add_button.clicked.connect(self.add_playlists)
-        empty_layout.addWidget(welcome)
-        empty_layout.addWidget(explain)
-        empty_layout.addWidget(add_button, 0, Qt.AlignmentFlag.AlignCenter)
-        empty_layout.addStretch(2)
-
         self.stack = QStackedWidget()
-        self.stack.addWidget(self.table)
-        self.stack.addWidget(empty)
+        self.stack.addWidget(self.table)  # 0
+        self.stack.addWidget(self._build_empty_page())  # 1
+        self.stack.addWidget(self._build_ipod_page())  # 2
         right_layout.addWidget(self.stack, 1)
-        splitter.addWidget(right)
-        splitter.setStretchFactor(1, 1)
-        splitter.setSizes([260, 920])
 
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setMaximumBlockCount(5000)
         self.log.setPlaceholderText("Activity will show here.")
+        self.log.setStyleSheet("QPlainTextEdit { font-family: Monaco, Menlo, monospace; font-size: 11px; border: none;"
+                               " border-top: 1px solid #a3a3a3; }")
+        self.log.setFixedHeight(130)
+        self.log.hide()
+        right_layout.addWidget(self.log)
 
-        vertical = QSplitter(Qt.Orientation.Vertical)
-        vertical.addWidget(splitter)
-        vertical.addWidget(self.log)
-        vertical.setStretchFactor(0, 1)
-        vertical.setSizes([600, 120])
-        self.setCentralWidget(vertical)
+        splitter.addWidget(right)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([210, 970])
+        return splitter
 
-    def _build_status_bar(self) -> None:
-        bar = self.statusBar()
-        self.status_label = QLabel("Ready")
-        self.progress = QProgressBar()
-        self.progress.setMaximumWidth(260)
-        self.progress.setTextVisible(True)
-        self.progress.hide()
-        bar.addWidget(self.status_label, 1)
-        bar.addPermanentWidget(self.progress)
+    def _build_empty_page(self) -> QWidget:
+        page = QWidget()
+        page.setStyleSheet("background: #ffffff;")
+        layout = QVBoxLayout(page)
+        layout.addStretch(1)
+        welcome = QLabel("Add your first playlist")
+        welcome.setStyleSheet("font-size: 20px; font-weight: bold; color: #5b5b5b;")
+        welcome.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        explain = QLabel("Paste a Spotify link, pick from your Spotify account,\nor import an .m3u8 / .csv file.")
+        explain.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        explain.setStyleSheet("color: #7a7a7a;")
+        add_button = QPushButton("Add Playlists…")
+        add_button.setProperty("aqua", True)
+        add_button.clicked.connect(self.add_playlists)
+        layout.addWidget(welcome)
+        layout.addWidget(explain)
+        layout.addSpacing(10)
+        layout.addWidget(add_button, 0, Qt.AlignmentFlag.AlignCenter)
+        layout.addStretch(2)
+        return page
+
+    def _build_ipod_page(self) -> QWidget:
+        page = QWidget()
+        page.setObjectName("ipodPage")
+        page.setStyleSheet("#ipodPage { background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #fbfbfb, stop:1 #e6e6e6); }")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(24, 18, 24, 12)
+        top = QHBoxLayout()
+        self.ipod_graphic = IPodGraphic()
+        self.ipod_graphic.setFixedSize(190, 300)
+        top.addWidget(self.ipod_graphic)
+        top.addSpacing(18)
+        info = QVBoxLayout()
+        self.ipod_name = QLabel("iPod")
+        name_font = QFont(self.font())
+        name_font.setPixelSize(20)
+        name_font.setBold(True)
+        self.ipod_name.setFont(name_font)
+        info.addWidget(self.ipod_name)
+        summary = QFrame()
+        summary.setObjectName("summary")
+        summary.setStyleSheet("#summary { background: #ffffff; border: 1px solid #b9b9b9; border-radius: 6px; }")
+        form = QVBoxLayout(summary)
+        form.setContentsMargins(14, 10, 14, 10)
+        self.ipod_details = QLabel("")
+        self.ipod_details.setTextFormat(Qt.TextFormat.RichText)
+        self.ipod_details.setStyleSheet("background: transparent;")
+        form.addWidget(self.ipod_details)
+        info.addWidget(summary)
+        buttons = QHBoxLayout()
+        self.ipod_sync_button = QPushButton("Sync")
+        self.ipod_sync_button.setProperty("aqua", True)
+        self.ipod_sync_button.setMinimumWidth(110)
+        self.ipod_sync_button.clicked.connect(self.sync_ipod)
+        check = QPushButton("Check iPod")
+        check.clicked.connect(self.check_ipod)
+        eject = QPushButton("Eject")
+        eject.clicked.connect(self.eject_ipod)
+        buttons.addWidget(self.ipod_sync_button)
+        buttons.addWidget(check)
+        buttons.addWidget(eject)
+        buttons.addStretch(1)
+        info.addLayout(buttons)
+        info.addStretch(1)
+        top.addLayout(info, 1)
+        layout.addLayout(top, 1)
+        self.capacity = CapacityBar()
+        layout.addWidget(self.capacity)
+        return page
+
+    def _build_bottom_bar(self) -> QWidget:
+        bar = GradientBar(theme.BOTTOMBAR_TOP, theme.BOTTOMBAR_BOTTOM, line_at_bottom=False)
+        bar.setFixedHeight(30)
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(8, 3, 8, 3)
+
+        def square(text: str, tip: str, slot) -> QPushButton:
+            button = QPushButton(text)
+            button.setToolTip(tip)
+            button.setFixedSize(28, 22)
+            button.setStyleSheet(
+                "QPushButton { border-radius: 3px; padding: 0; font-weight: bold; border: 1px solid #6e6e6e;"
+                " background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #fbfbfb, stop:0.5 #e2e2e2, stop:0.51 #d3d3d3, stop:1 #ececec); }"
+                " QPushButton:pressed { background: #b9b9b9; }"
+            )
+            button.clicked.connect(slot)
+            return button
+
+        row.addWidget(square("+", "Add playlists", self.add_playlists))
+        row.addWidget(square("⚙", "Settings", self.open_settings))
+        row.addWidget(square("▤", "Show music folder", self.folder_action.trigger))
+        row.addStretch(1)
+        self.summary_label = QLabel("")
+        self.summary_label.setStyleSheet("background: transparent; color: #1f1f1f; font-size: 11px;")
+        row.addWidget(self.summary_label)
+        row.addStretch(1)
+        self.log_button = square("≡", "Show activity", lambda: self.log_action.trigger())
+        row.addWidget(self.log_button)
+        return bar
+
+    def _toggle_log(self) -> None:
+        self.log.setVisible(self.log_action.isChecked())
 
     # --- refreshing views ---------------------------------------------------------------------
 
@@ -236,63 +418,120 @@ class MainWindow(QMainWindow):
         if not self._refresh_timer.isActive():
             self._refresh_timer.start()
 
+    def sidebar_entries(self) -> list[str]:
+        """Source list entries (not headings), as shown: 'Name' or 'Name (count)'."""
+        entries = []
+        for i in range(self.sidebar.topLevelItemCount()):
+            item = self.sidebar.topLevelItem(i)
+            if not item.data(0, SECTION_ROLE):
+                count = item.data(0, COUNT_ROLE)
+                entries.append(item.text(0) + (f" ({count})" if count else ""))
+        return entries
+
+    def _add_section(self, title: str) -> None:
+        item = QTreeWidgetItem([title])
+        item.setData(0, SECTION_ROLE, True)
+        item.setFlags(Qt.ItemFlag.NoItemFlags)
+        self.sidebar.addTopLevelItem(item)
+
+    def _add_source(self, text: str, key, icon: str, count=None, tip: str = "") -> None:
+        item = QTreeWidgetItem([text])
+        item.setData(0, Qt.ItemDataRole.UserRole, key)
+        item.setData(0, ICON_ROLE, icon)
+        if count:
+            item.setData(0, COUNT_ROLE, count)
+        if tip:
+            item.setToolTip(0, tip)
+        self.sidebar.addTopLevelItem(item)
+
     def refresh(self) -> None:
         playlists = self.library.playlists()
-        attention = [i for i in self.library.tracks_in_playlists() if i.status in ATTENTION_STATUSES]
+        all_tracks = self.library.tracks_in_playlists()
+        attention = [i for i in all_tracks if i.status in ATTENTION_STATUSES]
 
         self.sidebar.blockSignals(True)
         self.sidebar.clear()
         if attention:
-            item = QListWidgetItem(f"⚠  Needs attention  ({len(attention)})")
-            item.setData(Qt.ItemDataRole.UserRole, ATTENTION)
-            item.setForeground(QColor("#e08a00"))
-            item.setToolTip("Songs that weren't found or might be the wrong version")
-            self.sidebar.addItem(item)
+            self._add_section("Library")
+            self._add_source("Needs Attention", ATTENTION, "attention", len(attention),
+                             "Songs that weren't found or might be the wrong version")
+        self._add_section("Playlists")
         for playlist in playlists:
             counts = self.library.counts(playlist)
             total = sum(counts.values())
             ready = counts.get("downloaded", 0) + counts.get("review", 0) + counts.get("local", 0)
-            item = QListWidgetItem(f"{playlist.name}\n{ready} of {total} ready")
-            item.setData(Qt.ItemDataRole.UserRole, playlist.id)
-            item.setToolTip(playlist.spec.describe())
-            self.sidebar.addItem(item)
+            waiting = total - ready
+            self._add_source(playlist.name, playlist.id, "playlist", waiting or None,
+                             f"{ready} of {total} songs ready · {playlist.spec.describe()}")
+        if self.ipod is not None:
+            self._add_section("Devices")
+            self._add_source(self.ipod.name, IPOD, "ipod", None, str(self.ipod.root))
         # Keep the selection.
-        target = 0 if self.sidebar.count() else -1
-        for row in range(self.sidebar.count()):
-            if self.sidebar.item(row).data(Qt.ItemDataRole.UserRole) == self.current_key:
-                target = row
-                break
-        if target >= 0:
-            self.sidebar.setCurrentRow(target)
-            self.current_key = self.sidebar.item(target).data(Qt.ItemDataRole.UserRole)
+        target = None
+        first = None
+        for i in range(self.sidebar.topLevelItemCount()):
+            item = self.sidebar.topLevelItem(i)
+            if item.data(0, SECTION_ROLE):
+                continue
+            first = first or item
+            if item.data(0, Qt.ItemDataRole.UserRole) == self.current_key:
+                target = item
+        target = target or first
+        if target is not None:
+            self.sidebar.setCurrentItem(target)
+            self.current_key = target.data(0, Qt.ItemDataRole.UserRole)
         else:
             self.current_key = None
         self.sidebar.blockSignals(False)
         self._show_current(attention)
 
+        songs = len(all_tracks)
+        hours = sum((i.track.duration_ms or 0) for i in all_tracks) / 3_600_000
+        size = sum(pathlib.Path(i.file_path).stat().st_size for i in all_tracks if i.has_file)
+        self.summary_label.setText(
+            f"{len(playlists)} playlists, {songs} songs, {hours:.1f} hours, {_human_size(size)}" if songs else ""
+        )
+        if self.job is None:
+            self._idle_lcd()
+
+    def _idle_lcd(self) -> None:
+        if self.lcd.bar.isVisible():
+            return
+        if not self.status_label.text() or self.status_label.text() in ("Ready", "Synclassic"):
+            self.status_label.setText("Synclassic")
+        ipod = f"{self.ipod.name} connected" if self.ipod is not None else "No iPod connected"
+        self.lcd.secondary.setText(f"{ipod}")
+
     def _sidebar_changed(self, current, previous) -> None:
-        self.current_key = current.data(Qt.ItemDataRole.UserRole) if current else None
+        if current is not None and current.data(0, SECTION_ROLE):
+            return
+        self.current_key = current.data(0, Qt.ItemDataRole.UserRole) if current else None
         self._show_current()
 
     def _current_playlist(self) -> LibraryPlaylist | None:
-        if self.current_key in (None, ATTENTION):
+        if self.current_key in (None, ATTENTION, IPOD):
             return None
         return next((p for p in self.library.playlists() if p.id == self.current_key), None)
 
     def _show_current(self, attention: list[LibraryTrack] | None = None) -> None:
         if self.current_key is None:
             self.stack.setCurrentIndex(1)
-            self.title.setText("Synclassic")
-            self.subtitle.setText(f"Version {__version__}")
+            self.header_strip.hide()
             self.note.hide()
-            self.update_one.hide()
             return
+        if self.current_key == IPOD:
+            self.header_strip.hide()
+            self.note.hide()
+            self.stack.setCurrentIndex(2)
+            self._show_ipod()
+            return
+        self.header_strip.show()
         self.stack.setCurrentIndex(0)
         if self.current_key == ATTENTION:
             items = attention if attention is not None else [
                 i for i in self.library.tracks_in_playlists() if i.status in ATTENTION_STATUSES
             ]
-            self.title.setText("Needs attention")
+            self.title.setText("Needs Attention")
             self.subtitle.setText("Double-click a song to listen to the choices and pick the right version.")
             self.note.hide()
             self.update_one.hide()
@@ -319,13 +558,14 @@ class MainWindow(QMainWindow):
         for number, item in enumerate(items, start=1):
             track = item.track
             state = status_of(item)
-            label, color = STATUS.get(state, (state, "#8a8a8a"))
+            label = STATUS.get(state, state)
             if item.manual and state == "downloaded":
-                label = "Ready (your pick)"
-            row = QTreeWidgetItem([str(number), track.title, track.artist, track.album, fmt_time((track.duration_ms or 0) / 1000), label])
+                label = "Your pick"
+            row = QTreeWidgetItem([str(number), track.title, track.artist, track.album,
+                                   fmt_time((track.duration_ms or 0) / 1000), label])
             row.setData(0, Qt.ItemDataRole.UserRole, item.id)
-            row.setForeground(5, QColor(color))
             row.setTextAlignment(0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            row.setForeground(0, Qt.GlobalColor.gray)
             tip = item.error or item.match_notes or ""
             if tip:
                 row.setToolTip(5, tip)
@@ -335,6 +575,84 @@ class MainWindow(QMainWindow):
             if row.data(0, Qt.ItemDataRole.UserRole) in selected:
                 row.setSelected(True)
         self.table.verticalScrollBar().setValue(scroll)
+        self._apply_search()
+
+    def _apply_search(self) -> None:
+        words = self.search.text().casefold().split()
+        for i in range(self.table.topLevelItemCount()):
+            row = self.table.topLevelItem(i)
+            haystack = " ".join(row.text(c) for c in (1, 2, 3)).casefold()
+            row.setHidden(bool(words) and not all(w in haystack for w in words))
+
+    # --- iPod ------------------------------------------------------------------------------------
+
+    def _detect_ipod(self) -> None:
+        from synclassic.ipod.device import find_ipods
+
+        try:
+            ipods = find_ipods()
+        except OSError:
+            ipods = []
+        ipod = ipods[0] if ipods else None
+        root = ipod.root if ipod else None
+        if root == self._ipod_root:
+            return
+        self._ipod_root = root
+        self.ipod = ipod
+        if ipod is None and self.current_key == IPOD:
+            self.current_key = None
+        self.refresh()
+
+    def _show_ipod(self) -> None:
+        ipod = self.ipod
+        if ipod is None:
+            return
+        self.ipod_name.setText(ipod.name)
+        self.ipod_graphic.set_screen(ipod.name, "Reading…")
+        total, free = ipod.disk_usage()
+        rows = [("Name", ipod.name), ("Model", ipod.model), ("Software Version", ipod.firmware or "unknown"),
+                ("Capacity", f"{total / 1000**3:.1f} GB")]
+        self._ipod_rows = rows
+        self._render_ipod_details(rows)
+        self.capacity.set_values(0, total - free, free)
+
+        def read(task):
+            from synclassic.ipod import itunesdb
+
+            db = itunesdb.parse(ipod.database_path.read_bytes())
+            songs = itunesdb.songs(db)
+            audio = sum(s.size for s in songs if s.media_type in (0, 1))
+            playlists = [p for p in itunesdb.playlists(db, 2) if not p.is_master]
+            return len(songs), audio, len(playlists)
+
+        def show(result):
+            count, audio, playlists = result
+            self._render_ipod_details(self._ipod_rows + [("Songs", f"{count:,}"), ("Playlists", str(playlists))])
+            self.capacity.set_values(audio, max(0, total - free - audio), free)
+            self.ipod_graphic.set_screen(ipod.name, f"{count:,} songs\n{playlists} playlists")
+
+        run_in_background(self, read, show, lambda error: self.ipod_graphic.set_screen(ipod.name, "Can't read music"))
+
+    def _render_ipod_details(self, rows) -> None:
+        cells = "".join(
+            f"<tr><td align='right' style='color:#6b6b6b; padding:2px 10px 2px 0'>{k}:</td><td style='padding:2px 0'>{v}</td></tr>"
+            for k, v in rows
+        )
+        self.ipod_details.setText(f"<table>{cells}</table>")
+
+    def eject_ipod(self) -> None:
+        from synclassic.ipod import sync as ipod_sync
+
+        if self.ipod is None:
+            QMessageBox.information(self, "No iPod", "There's no iPod connected.")
+            return
+        if self.job is not None:
+            QMessageBox.information(self, "Busy", "Wait for the current task to finish first.")
+            return
+        message = ipod_sync.eject(self.ipod)
+        self.say(message)
+        self.status_label.setText(message)
+        self._detect_ipod()
 
     # --- menus --------------------------------------------------------------------------------
 
@@ -366,9 +684,9 @@ class MainWindow(QMainWindow):
 
     def _sidebar_menu(self, position) -> None:
         row = self.sidebar.itemAt(position)
-        if not row or row.data(Qt.ItemDataRole.UserRole) == ATTENTION:
+        if not row or row.data(0, SECTION_ROLE) or row.data(0, Qt.ItemDataRole.UserRole) in (ATTENTION, IPOD):
             return
-        playlist = next((p for p in self.library.playlists() if p.id == row.data(Qt.ItemDataRole.UserRole)), None)
+        playlist = next((p for p in self.library.playlists() if p.id == row.data(0, Qt.ItemDataRole.UserRole)), None)
         if not playlist:
             return
         menu = QMenu(self)
@@ -409,7 +727,7 @@ class MainWindow(QMainWindow):
                 self.refresh()
 
     def _playlist_ids_for_view(self) -> list[int] | None:
-        return None if self.current_key in (None, ATTENTION) else [self.current_key]
+        return None if self.current_key in (None, ATTENTION, IPOD) else [self.current_key]
 
     # --- actions ------------------------------------------------------------------------------
 
@@ -574,7 +892,7 @@ class MainWindow(QMainWindow):
         self._run_job("Adding…", work, done)
 
     def _update_current(self) -> None:
-        if self.current_key not in (None, ATTENTION):
+        if self.current_key not in (None, ATTENTION, IPOD):
             self.start_update([self.current_key])
 
     def start_update(self, playlist_ids: list[int] | None, retry_failed: bool = False, refresh_sources: bool = True) -> None:
@@ -641,6 +959,7 @@ class MainWindow(QMainWindow):
 
     def _set_busy(self, text: str) -> None:
         self.status_label.setText(text)
+        self.lcd.secondary.setText("")
         self.progress.setRange(0, 0)
         self.progress.show()
         for action in (self.update_action, self.add_action, self.sync_action):
@@ -662,12 +981,17 @@ class MainWindow(QMainWindow):
         if total <= 0:
             self.progress.setRange(0, 0)
             self.status_label.setText(text)
+            self.lcd.secondary.setText("")
             return
+        verb = getattr(self, "_progress_verb", "Downloading")
         self.progress.setRange(0, total)
         self.progress.setValue(min(number - 1, total))
-        self.progress.setFormat(f"{min(number, total)} / {total}")
-        verb = getattr(self, "_progress_verb", "Downloading")
-        self.status_label.setText(f"{verb}: {text}" if number <= total else "Finishing…")
+        if number <= total:
+            self.status_label.setText(text)
+            self.lcd.secondary.setText(f"{verb} {number} of {total}")
+        else:
+            self.status_label.setText("Finishing…")
+            self.lcd.secondary.setText("")
 
     def _job_finished(self, result, on_done) -> None:
         summary = "Done."
