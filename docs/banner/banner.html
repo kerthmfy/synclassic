@@ -1,0 +1,138 @@
+<!doctype html>
+<!--
+  The README banner (docs/banner.png).
+
+  Edit this file, preview it by opening it in a browser, then make the PNG:
+
+      python docs/banner/render.py
+
+  The banner is 1280 x 640 (saved at 2x, 2560 x 1280). Text is in the BODY below; colours,
+  sizes and positions are the variables right under <style>. Images sit next to this file:
+  icon.png, window.png (a screenshot of the app) and ipod.png. Swap them for new ones with the
+  same names, or point the src attributes elsewhere.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Synclassic banner</title>
+<style>
+:root {
+  /* --- easy to change ------------------------------------------------------------------ */
+  --title-size: 62px;
+  --tagline-size: 27px;
+  --text-size: 16px;
+  --ink: #1f2b3b;               /* tagline */
+  --muted: #4b5868;             /* small text */
+  --accent-top: #5fa6f5;        /* the blue words, top to bottom */
+  --accent-bottom: #1f6fd6;
+  --sky-top: #f4f7fb;           /* background, top to bottom */
+  --sky-middle: #dfe7f1;
+  --sky-bottom: #cfd9e6;
+  --glow: rgba(120, 170, 235, .38); /* the blue light behind the window */
+
+  --window-left: 556px;  --window-top: 74px;  --window-width: 690px;
+  --ipod-left: 484px;    --ipod-top: 282px;   --ipod-width: 176px;  --ipod-tilt: -7deg;
+  --text-left: 72px;     --text-top: 92px;    --text-width: 430px;
+}
+
+/* --- fonts (Inter, bundled in ./fonts, OFL licence) ---------------------------------- */
+@font-face { font-family: "Banner"; font-weight: 400; src: url("fonts/Inter-Regular.woff2") format("woff2"); }
+@font-face { font-family: "Banner"; font-weight: 600; src: url("fonts/Inter-SemiBold.woff2") format("woff2"); }
+@font-face { font-family: "Banner"; font-weight: 700; src: url("fonts/Inter-Bold.woff2") format("woff2"); }
+@font-face { font-family: "Banner Display"; font-weight: 800; src: url("fonts/InterDisplay-ExtraBold.woff2") format("woff2"); }
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1280px; height: 640px; overflow: hidden; }
+body {
+  position: relative;
+  font-family: "Banner", -apple-system, "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background:
+    radial-gradient(900px 520px at 82% 42%, var(--glow), rgba(120, 170, 235, 0) 70%),
+    radial-gradient(600px 400px at 8% 0%, rgba(255, 255, 255, .9), rgba(255, 255, 255, 0) 70%),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, .22) 0 1px, rgba(0, 0, 0, 0) 1px 3px),
+    linear-gradient(180deg, var(--sky-top) 0%, var(--sky-middle) 60%, var(--sky-bottom) 100%);
+}
+
+/* Left: icon, name, tagline, chips. */
+.left { position: absolute; left: var(--text-left); top: var(--text-top); width: var(--text-width); }
+.brand { display: flex; align-items: center; gap: 18px; }
+.brand img { width: 112px; height: 112px; margin-left: -12px; filter: drop-shadow(0 8px 14px rgba(30, 50, 90, .18)); }
+h1 {
+  font-family: "Banner Display", "Banner", sans-serif; font-weight: 800;
+  font-size: var(--title-size); letter-spacing: -1.6px;
+  background: linear-gradient(180deg, #2c3a4f, #0f1722);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.tagline { margin-top: 26px; font-size: var(--tagline-size); line-height: 1.25; font-weight: 600;
+           color: var(--ink); letter-spacing: -.4px; }
+.tagline b { font-weight: 700; background: linear-gradient(180deg, var(--accent-top), var(--accent-bottom));
+             -webkit-background-clip: text; background-clip: text; color: transparent; }
+.text { margin-top: 14px; font-size: var(--text-size); line-height: 1.55; color: var(--muted); max-width: 410px; }
+.chips { margin-top: 26px; display: flex; flex-wrap: wrap; gap: 8px; max-width: 420px; }
+.chip {
+  font-size: 13px; font-weight: 600; color: #26405f; padding: 6px 12px; border-radius: 999px;
+  background: linear-gradient(180deg, #ffffff 0%, #eaf1f9 55%, #dbe6f3 100%);
+  border: 1px solid #a9bdd4;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .9) inset, 0 1px 2px rgba(30, 60, 100, .12);
+}
+
+/* Right: the app window, with a macOS title bar. */
+.window {
+  position: absolute; left: var(--window-left); top: var(--window-top); width: var(--window-width);
+  border-radius: 11px; overflow: hidden; background: #e3e3e3;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .22), 0 28px 60px rgba(25, 45, 80, .35), 0 8px 18px rgba(25, 45, 80, .18);
+}
+.titlebar { position: relative; height: 21px; display: flex; align-items: center;
+            background: linear-gradient(180deg, #ececec, #e3e3e3); }
+.lights { display: flex; gap: 6px; margin-left: 9px; }
+.lights i { display: block; width: 10px; height: 10px; border-radius: 50%; box-shadow: inset 0 0 0 .5px rgba(0, 0, 0, .25); }
+.lights i:nth-child(1) { background: #ff5f57; }
+.lights i:nth-child(2) { background: #febc2e; }
+.lights i:nth-child(3) { background: #28c840; }
+.titlebar span { position: absolute; left: 0; right: 0; text-align: center; font-size: 11px; font-weight: 600; color: #3a3a3a; }
+.window img { display: block; width: 100%; }
+
+/* The iPod in front. */
+.ipod {
+  position: absolute; left: var(--ipod-left); top: var(--ipod-top); width: var(--ipod-width);
+  transform: rotate(var(--ipod-tilt));
+  filter: drop-shadow(0 22px 22px rgba(10, 20, 40, .38)) drop-shadow(0 4px 6px rgba(10, 20, 40, .25));
+}
+</style>
+</head>
+<body>
+
+<div class="left">
+  <div class="brand">
+    <img src="icon.png" alt="">
+    <h1>Synclassic</h1>
+  </div>
+
+  <!-- The tagline: words inside <b> are blue. <br> breaks the line. -->
+  <div class="tagline">Your Spotify playlists,<br>on your <b>iPod classic</b>.</div>
+
+  <div class="text">
+    Downloads every song in Spotify order with sharp album art, then syncs it to your iPod — the way iTunes used to.
+  </div>
+
+  <!-- One <span class="chip"> per feature. Add, remove or reword freely. -->
+  <div class="chips">
+    <span class="chip">Spotify · links · m3u8 · CSV</span>
+    <span class="chip">M4A / MP3</span>
+    <span class="chip">Album art</span>
+    <span class="chip">Playlists in order</span>
+    <span class="chip">Podcasts</span>
+    <span class="chip">Last.fm scrobbling</span>
+  </div>
+</div>
+
+<div class="window">
+  <div class="titlebar"><div class="lights"><i></i><i></i><i></i></div><span>Synclassic</span></div>
+  <img src="window.png" alt="">
+</div>
+
+<img class="ipod" src="ipod.png" alt="">
+
+</body>
+</html>

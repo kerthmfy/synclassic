@@ -336,4 +336,12 @@ pip install -e '.[dev]'
 pytest
 ```
 
-Licensed under GPL-3.0-or-later.
+The banner at the top of this page is `docs/banner/banner.html` (text, colours and layout are
+easy to change there; open it in a browser to preview). Turn it into `docs/banner.png` with:
+
+```bash
+python docs/banner/render.py
+```
+
+Licensed under GPL-3.0-or-later. The banner's font is Inter (SIL Open Font License, see
+`docs/banner/fonts/LICENSE.txt`).
