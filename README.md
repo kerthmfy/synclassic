@@ -267,6 +267,12 @@ volume. Turn it on on the iPod: Settings → Sound Check. Songs Synclassic didn'
 iPod → **Sound Check for Other Songs…** (or `synclassic ipod soundcheck`). Turn measuring off in
 Settings (or `synclassic config sound_check off`).
 
+**Lyrics**: each downloaded song gets its lyrics (from lrclib.net, a free lyrics database)
+inside the file, and the iPod shows them: play a song and press the center button. **Get
+Lyrics…** (File or iPod menu, or `synclassic lyrics`) fills in songs you already have, on this
+Mac and on the iPod, including songs Synclassic didn't add. Songs lrclib.net doesn't know are
+asked about again after a month. Turn off in Settings (or `synclassic config lyrics off`).
+
 **Fix Album Art…** (iPod menu, File menu, or `synclassic ipod art`): finds albums whose cover
 is missing or small enough to look pixelated (under 300 px), on the iPod and among the songs
 on your Mac, and looks for sharp ones: the album's Spotify cover for songs Synclassic

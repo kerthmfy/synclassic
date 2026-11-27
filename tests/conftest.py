@@ -21,6 +21,17 @@ def isolated_home(tmp_path, monkeypatch):
     from synclassic.sources import spotify_public
 
     monkeypatch.setattr(spotify_public, "track_cover_url", lambda track_id: None)
+    # Nor real lyrics: LRCLIB "doesn't know" any song unless a test says otherwise.
+    from types import SimpleNamespace
+
+    from synclassic import lyrics
+
+    original = lyrics.LyricsFinder.__init__
+
+    def offline(self, get=None, sleep=lambda s: None):
+        original(self, get or (lambda url, params: SimpleNamespace(status_code=404, json=lambda: None)), sleep)
+
+    monkeypatch.setattr(lyrics.LyricsFinder, "__init__", offline)
     return home
 
 

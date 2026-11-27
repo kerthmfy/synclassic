@@ -426,7 +426,10 @@ def song_info(path: pathlib.Path, item: LibraryTrack, location: str) -> NewSong:
         vbr = mode is not None and "VBR" in str(mode).upper()
     track = item.track
     year = int(track.year) if track.year and track.year.isdigit() else 0
+    from synclassic import lyrics
+
     return NewSong(
+        lyrics=bool(lyrics.read(path)),
         location=location,
         filetype=filetype,
         size=path.stat().st_size,

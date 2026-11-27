@@ -238,6 +238,18 @@ def save_candidate(
         except (LoudnessError, OSError) as error:
             say(f"    (couldn't measure loudness: {error})")
 
+    if settings.lyrics:
+        from synclassic import lyrics
+
+        try:
+            outcome = lyrics.fetch_and_write(download.path, item.track.artist, item.track.title, item.track.album or "",
+                                             round((item.track.duration_ms or 0) / 1000), lyrics.LyricsFinder(),
+                                             lyrics.LyricsLookups(library))
+            if outcome == "found":
+                say("    lyrics added")
+        except Exception as error:  # lyrics are a bonus; never lose the download over them
+            say(f"    (no lyrics this time: {error})")
+
     status = "review" if (result.status == "review" and not manual) else "downloaded"
     library.update_track(
         item.id, track=item.track, status=status, video_id=cand.video_id, match_score=result.score,

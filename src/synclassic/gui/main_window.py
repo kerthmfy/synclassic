@@ -182,6 +182,8 @@ class MainWindow(QMainWindow):
         self.cleanup_action = action("Clean Up…", self.show_cleanup)
         self.soundcheck_action = action("Sound Check for Other Songs…", self.soundcheck_other_songs, None,
                                         "Measure songs Synclassic didn't add so Sound Check evens them out too")
+        self.lyrics_action = action("Get Lyrics…", self.get_lyrics, None,
+                                    "Fill in lyrics for songs that don't have them, on this Mac and on the iPod")
         self.fix_art_action = action("Fix Album Art…", self.show_fix_art, None,
                                      "Find missing or pixelated covers on the iPod and put sharp ones on")
         self.scrobble_action = action("Scrobble to Last.fm", lambda: self.scrobble_now())
@@ -200,13 +202,13 @@ class MainWindow(QMainWindow):
         bar = self.menuBar()
         file_menu = bar.addMenu("File")
         for act in (self.add_action, self.subscribe_action, None, self.update_action, self.podcasts_update_action, self.stop_action, None, self.folder_action,
-                    self.fix_art_action, None, self.settings_action):
+                    self.fix_art_action, self.lyrics_action, None, self.settings_action):
             file_menu.addSeparator() if act is None else file_menu.addAction(act)
         ipod_menu = bar.addMenu("iPod")
         for act in (self.update_sync_action, self.sync_action, None, self.new_ipod_playlist_action,
                     self.import_ipod_playlist_action, self.info_action, None, self.scrobble_action, None,
-                    self.backups_action, self.cleanup_action, self.fix_art_action, self.soundcheck_action,
-                    self.ipod_action, None, self.eject_action):
+                    self.backups_action, self.cleanup_action, self.fix_art_action, self.lyrics_action,
+                    self.soundcheck_action, self.ipod_action, None, self.eject_action):
             ipod_menu.addSeparator() if act is None else ipod_menu.addAction(act)
         controls = bar.addMenu("Controls")
         for act in (self.play_action, self.next_action, self.previous_action, None, self.shuffle_action, self.repeat_action):
@@ -1371,6 +1373,54 @@ class MainWindow(QMainWindow):
             self._load_ipod_contents()
 
         self._run_job("Measuring loudness…", work, finished, verb="Measuring")
+
+    def get_lyrics(self) -> None:
+        from synclassic.ipod import lyrics_sync
+
+        if self.job is not None:
+            QMessageBox.information(self, "Busy", "Wait for the current task to finish first.")
+            return
+        ipod, path = self.ipod, self.library_path
+        mac = len(lyrics_sync.library_missing(self.library))
+        on_ipod = len(lyrics_sync.ipod_missing(ipod, self.library)) if ipod is not None else 0
+        if not mac and not on_ipod:
+            QMessageBox.information(self, "Lyrics", "Every song already has lyrics (or none were found recently).")
+            return
+        where = [f"{mac} songs on this Mac"] if mac else []
+        if on_ipod:
+            where.append(f"{on_ipod} songs on the iPod")
+        answer = QMessageBox.question(
+            self, "Get Lyrics",
+            f"Look up lyrics for {' and '.join(where)} on lrclib.net and put them inside the songs?\n\n"
+            "On the iPod, play a song and press the center button to see them. You can stop any time.")
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        make_backup = ipod is not None and ipod.root not in self._backed_up
+
+        def work(task):
+            library = Library(path)
+            try:
+                parts = []
+                if mac:
+                    result = lyrics_sync.fill_library(library, progress=task.progress.emit,
+                                                      should_stop=task.should_stop, say=task.say)
+                    parts.append(f"Mac: {result.summary()}")
+                if on_ipod and not task.should_stop():
+                    result = lyrics_sync.fill_ipod(ipod, library, make_backup=make_backup, progress=task.progress.emit,
+                                                   should_stop=task.should_stop, say=task.say)
+                    parts.append(f"iPod: {result.summary()}")
+                for part in parts:
+                    task.say(part)
+                return {"summary": " ".join(parts)}
+            finally:
+                library.close()
+
+        def finished(result):
+            if ipod is not None:
+                self._backed_up.add(ipod.root)
+                self._load_ipod_contents()
+
+        self._run_job("Getting lyrics…", work, finished, verb="Lyrics for")
 
     def show_fix_art(self) -> None:
         from synclassic.gui.art_dialog import ArtFixDialog

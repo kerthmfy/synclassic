@@ -52,6 +52,8 @@ class Settings:
     scrobble_after_sync: bool = True
     # Measure each song's loudness so the iPod's Sound Check plays them at a similar volume.
     sound_check: bool = True
+    # Put lyrics (from LRCLIB) inside downloaded songs; the iPod shows them.
+    lyrics: bool = True
 
     @property
     def music_path(self) -> pathlib.Path:
@@ -68,6 +70,7 @@ SETTING_HELP = {
     "full_playlist_reader": "on/off: read public playlists over 100 songs from Spotify's web page",
     "folder_layout": "artist (Artist/Album/Song) or playlist (one folder per playlist)",
     "sound_check": "on/off: measure loudness so the iPod's Sound Check evens out volume",
+    "lyrics": "on/off: put lyrics (from lrclib.net) inside downloaded songs",
 }
 
 
@@ -120,7 +123,7 @@ def set_setting(settings: Settings, key: str, value: str) -> None:
         value = value.lower()
         if value not in ("artist", "playlist"):
             raise ValueError("folder_layout must be artist or playlist")
-    elif key in ("full_playlist_reader", "sound_check"):
+    elif key in ("full_playlist_reader", "sound_check", "lyrics"):
         lowered = value.lower()
         if lowered not in ("on", "off", "true", "false", "yes", "no", "1", "0"):
             raise ValueError(f"{key} must be on or off")

@@ -71,6 +71,7 @@ class NewSong:
     category: str = ""
     released_unix: int = 0
     soundcheck: int = 0  # the iPod's Sound Check value (0 = unknown)
+    lyrics: bool = False  # the file has lyrics inside
 
 
 PODCAST_PLAYLIST_FLAG = 0x01  # mhyp +0x2A bit 0: the Podcasts playlist
@@ -206,6 +207,8 @@ class Editor:
             mhit.set_u8(0xA4, 2)  # no artwork (yet)
             if template is None or template.u64(0xA8) == template.u64(0x70):
                 mhit.set_u64(0xA8, dbid)
+        if length > 0xB0 and song.lyrics:
+            mhit.set_u8(0xB0, 1)  # the iPod shows the lyrics inside the file
         if length >= 0xD4:
             mhit.set_u32(0xD0, (0x06 if song.video else 0x04) if song.podcast else 1)  # podcast / audio
         if song.podcast:

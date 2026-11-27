@@ -113,6 +113,9 @@ class SettingsDialog(QDialog):
         self.sound_check.setChecked(self.settings.sound_check)
         self.sound_check.setToolTip("Turn Sound Check on on the iPod too: Settings → Sound Check.")
         form.addRow("", self.sound_check)
+        self.lyrics = QCheckBox("Lyrics: put each song's lyrics inside it (from lrclib.net); the iPod shows them")
+        self.lyrics.setChecked(self.settings.lyrics)
+        form.addRow("", self.lyrics)
         self.full_reader = QCheckBox("Read playlists over 100 songs in full from Spotify's web page")
         self.full_reader.setChecked(self.settings.full_playlist_reader)
         self.full_reader.setToolTip(
@@ -305,6 +308,7 @@ class SettingsDialog(QDialog):
         self.settings.download_pause = float(self.pause.value())
         self.settings.full_playlist_reader = self.full_reader.isChecked()
         self.settings.sound_check = self.sound_check.isChecked()
+        self.settings.lyrics = self.lyrics.isChecked()
         self.settings.folder_layout = self.layout_choice.currentData()
         self.settings.scrobble_after_sync = self.scrobble_after.isChecked()
         from synclassic import lastfm

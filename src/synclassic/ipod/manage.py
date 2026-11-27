@@ -283,7 +283,14 @@ def song_from_file(path: pathlib.Path, location: str, extension: str) -> NewSong
         track_number=number("tracknumber"),
         disc_number=number("discnumber"),
         year=int(year) if year.isdigit() else 0,
+        lyrics=bool(_lyrics_inside(path)),
     )
+
+
+def _lyrics_inside(path: pathlib.Path) -> str | None:
+    from synclassic import lyrics
+
+    return lyrics.read(path)
 
 
 # --- one-call helpers used by the app ------------------------------------------------------------
