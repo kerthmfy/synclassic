@@ -412,6 +412,12 @@ def draw_source_icon(painter: QPainter, r: QRectF, kind: str) -> None:
             painter.drawEllipse(c, 1.6, 1.6)
             painter.drawArc(QRectF(c.x() - 4.5, c.y() - 4.5, 9, 9), 30 * 16, 120 * 16)
             painter.drawArc(QRectF(c.x() - 4.5, c.y() - 4.5, 9, 9), 210 * 16, 120 * 16)
+    elif kind == "stats":
+        for i, height in enumerate((6, 11, 8)):
+            column = QRectF(r.left() + 1.5 + i * 4.6, r.bottom() - 1 - height, 3.6, height)
+            painter.setPen(QPen(QColor("#2a5ea8"), 0.7))
+            painter.setBrush(_gradient(column, (0, "#8fc2ff"), (1, "#2f6fc9")))
+            painter.drawRect(column)
     elif kind == "albums":
         for offset, color in ((3, "#9aa9bd"), (0, "#5b7aa6")):
             square = QRectF(r.left() + 1 + offset, r.top() + 1 + (3 - offset), 11, 11)

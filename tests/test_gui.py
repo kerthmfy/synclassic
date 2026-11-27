@@ -61,7 +61,7 @@ def test_update_from_window(app, monkeypatch, tmp_path):
     assert window.job is not None and not window.update_action.isEnabled()
     assert wait_until(app, lambda: window.job is None)
 
-    assert window.sidebar_entries() == ["Podcasts", "Needs Attention (1)", "Mix (1)"]  # (count) = songs not ready
+    assert window.sidebar_entries() == ["Podcasts", "Listening Stats", "Needs Attention (1)", "Mix (1)"]  # (count) = songs not ready
     assert "1 downloaded" in window.status_label.text()
     assert (config.load_settings().music_path / "Playlists" / "Mix.m3u8").is_file()
     window.close()
@@ -193,7 +193,7 @@ def test_browse_the_ipod(app, monkeypatch, tmp_path):
 
     window = MainWindow()
     assert wait_until(app, lambda: window.ipod_contents is not None)
-    assert window.sidebar_entries() == ["Podcasts", "Kerth's iPod", "Music", "Albums", "Artists", "Genres", "Yeah"]
+    assert window.sidebar_entries() == ["Podcasts", "Listening Stats", "Kerth's iPod", "Music", "Albums", "Artists", "Genres", "Yeah"]
 
     def select(key):
         for i in range(window.sidebar.topLevelItemCount()):

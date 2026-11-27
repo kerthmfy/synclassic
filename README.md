@@ -228,6 +228,10 @@ with the controls and display; a music note in the menu bar shows the current so
 Next and Previous (turn off in Settings). With Last.fm connected, songs you play in Synclassic
 show as "Now Playing" on your profile and are scrobbled right away (Settings → Last.fm).
 
+**Listening Stats** (under LIBRARY): your top songs, artists, albums and genres for the last 7 or
+30 days (from plays Synclassic records from now on: the iPod's at each sync and songs played in
+the app), or all time from the iPod's own play counts.
+
 **Cover Flow**: the iPod's Albums page shows its covers as a grid or in Cover Flow (click,
 drag, scroll or use the arrow keys; the album's songs show underneath).
 

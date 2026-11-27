@@ -53,6 +53,7 @@ def capture(songs: list[itunesdb.SongView], entries) -> int:
     queue = load_queue()
     seen = {(p.get("dbid"), p["timestamp"]) for p in queue}
     added = 0
+    new: list[dict] = []
     for song, entry in zip(songs, entries):
         if not entry.plays or song.media_type not in (0, 1):  # music only
             continue
@@ -64,16 +65,21 @@ def capture(songs: list[itunesdb.SongView], entries) -> int:
             stamp = last - n * length
             if (f"{song.dbid:016x}", stamp) in seen:
                 continue
-            queue.append({
+            play = {
                 "artist": song.artist, "track": song.title, "album": song.album,
                 "album_artist": song.album_artist, "duration": length, "timestamp": stamp,
                 "dbid": f"{song.dbid:016x}",
-            })
+            }
+            queue.append(play)
+            new.append({**play, "genre": getattr(song, "genre", ""), "source": "ipod"})
             seen.add((f"{song.dbid:016x}", stamp))
             added += 1
     if added:
         queue.sort(key=lambda p: p["timestamp"])
         save_queue(queue)
+        from synclassic import stats
+
+        stats.record(new)
     return added
 
 
@@ -129,4 +135,8 @@ def add_play(artist: str, track: str, album: str, album_artist: str, duration_s:
                   "duration": duration_s, "timestamp": timestamp, "dbid": "mac"})
     queue.sort(key=lambda p: p["timestamp"])
     save_queue(queue)
+    from synclassic import stats
+
+    stats.record([{**queue[-1], **{"artist": artist, "track": track, "album": album, "album_artist": album_artist,
+                                   "duration": duration_s, "timestamp": timestamp, "source": "mac"}}])
     return True

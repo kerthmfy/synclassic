@@ -64,7 +64,8 @@ from synclassic.update import add_inputs, download_missing, finalize, refresh_pl
 ATTENTION = "__attention__"
 IPOD = "__ipod__"
 PODCASTS = "__podcasts__"
-SPECIAL = (None, ATTENTION, IPOD, PODCASTS)  # sources that aren't Synclassic playlists
+STATS = "__stats__"
+SPECIAL = (None, ATTENTION, IPOD, PODCASTS, STATS)  # sources that aren't Synclassic playlists
 ATTENTION_STATUSES = ("review", "unmatched", "failed")
 
 STATUS = {
@@ -438,6 +439,10 @@ class MainWindow(QMainWindow):
         self.podcasts_page.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.podcasts_page.customContextMenuRequested.connect(self._podcasts_menu)
         self.stack.addWidget(self.podcasts_page)  # 7
+        from synclassic.gui.stats_view import StatsPage
+
+        self.stats_page = StatsPage()
+        self.stack.addWidget(self.stats_page)  # 8
         for table in self._ipod_tables():
             table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             table.customContextMenuRequested.connect(lambda pos, t=table: self._ipod_song_menu(t, pos))
@@ -655,6 +660,7 @@ class MainWindow(QMainWindow):
         self._add_section("Library")
         self._add_source("Podcasts", PODCASTS, "podcasts", self._podcasts().new_count() or None,
                          "Podcasts you subscribe to (the number: new episodes)")
+        self._add_source("Listening Stats", STATS, "stats", tip="Your most played songs, artists and albums")
         if attention:
             self._add_source("Needs Attention", ATTENTION, "attention", len(attention),
                              "Songs that weren't found or might be the wrong version")
@@ -760,6 +766,18 @@ class MainWindow(QMainWindow):
             return
         if self.current_key == PODCASTS:
             self._show_podcasts()
+            return
+        if self.current_key == STATS:
+            self._show_podcast_buttons(False)
+            self.header_strip.show()
+            self.note.hide()
+            self.update_one.hide()
+            self.title.setText("Listening Stats")
+            self.subtitle.setText("Most played: the last 7 or 30 days (from plays Synclassic records), or all time on "
+                                  "your iPod")
+            contents = self.ipod_contents
+            self.stats_page.set_ipod_songs(list(contents.songs.values()) if contents else None)
+            self.stack.setCurrentIndex(8)
             return
         self._show_podcast_buttons(False)
         self.header_strip.show()
