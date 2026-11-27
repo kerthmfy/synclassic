@@ -242,6 +242,9 @@ show as "Now Playing" on your profile and are scrobbled right away (Settings →
 30 days (from plays Synclassic records from now on: the iPod's at each sync and songs played in
 the app), or all time from the iPod's own play counts.
 
+**iPod Rewind** (Listening Stats → iPod Rewind…): your year, last 30 days or iPod all-time as
+a picture to share (1080×1350): top songs on an iPod screen, top artists, top album, plays and hours.
+
 **Cover Flow**: the iPod's Albums page shows its covers as a grid or in Cover Flow (click,
 drag, scroll or use the arrow keys; the album's songs show underneath).
 

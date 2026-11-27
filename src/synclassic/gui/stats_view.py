@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -22,6 +22,8 @@ PERIODS = (("week", "Last 7 Days"), ("month", "Last 30 Days"), ("ipod", "All Tim
 
 
 class StatsPage(QWidget):
+    rewind_requested = Signal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.ipod_songs = None  # browse.Song values of the connected iPod, if any
@@ -38,6 +40,11 @@ class StatsPage(QWidget):
             row.addWidget(button)
             self.buttons[key] = button
         row.addStretch(1)
+        rewind = QPushButton("iPod Rewind…")
+        rewind.setProperty("aqua", True)
+        rewind.setToolTip("Your recap as a picture to share")
+        rewind.clicked.connect(self.rewind_requested)
+        row.addWidget(rewind)
         layout.addLayout(row)
         self.summary = QLabel("")
         self.summary.setStyleSheet("font-size: 13px; color: #333; padding: 6px 2px;")

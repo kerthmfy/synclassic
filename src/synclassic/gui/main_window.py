@@ -447,6 +447,7 @@ class MainWindow(QMainWindow):
         from synclassic.gui.stats_view import StatsPage
 
         self.stats_page = StatsPage()
+        self.stats_page.rewind_requested.connect(self.show_rewind)
         self.stack.addWidget(self.stats_page)  # 8
         from synclassic.gui.store_view import FindMusicPage
 
@@ -1992,6 +1993,12 @@ class MainWindow(QMainWindow):
 
         playlist = store.get_album(self.library, album, songs)
         self._download_collection(playlist, f"the album “{album.title}”")
+
+    def show_rewind(self) -> None:
+        from synclassic.gui.rewind import RewindDialog
+
+        contents = self.ipod_contents
+        RewindDialog(self.library, list(contents.songs.values()) if contents else None, self).exec()
 
     def show_mini_player(self) -> None:
         from synclassic.gui.mini_player import MiniPlayer

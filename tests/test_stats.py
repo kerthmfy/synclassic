@@ -27,3 +27,20 @@ def test_ipod_all_time():
     data = stats.from_ipod(songs)
     assert data.songs == [("B", "Y", 9), ("A", "X", 5)] and data.plays == 14  # podcasts left out
     assert data.genres == [("Rock", 9), ("Pop", 5)] and data.seconds == 9 * 100 + 5 * 200
+
+
+def test_rewind_picture(tmp_path):
+    import os
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    QApplication.instance() or QApplication([])
+    from synclassic import config
+    from synclassic.gui.rewind import HEIGHT, WIDTH, RewindDialog
+    from synclassic.library import Library
+
+    scrobble.add_play("Daft Punk", "One More Time", "Discovery", "Daft Punk", 320, int(time.time() - 60))
+    dialog = RewindDialog(Library(config.app_dir() / "library.db"))
+    assert dialog.image is not None and (dialog.image.width(), dialog.image.height()) == (WIDTH, HEIGHT)
+    assert stats.for_year(time.localtime().tm_year).plays == 1

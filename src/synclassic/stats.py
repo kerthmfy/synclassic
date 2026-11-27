@@ -69,9 +69,23 @@ def _top(counter: Counter, limit: int) -> list:
 
 def from_history(days: int, now: float | None = None, limit: int = 25) -> Stats:
     now = time.time() if now is None else now
-    stats = Stats(f"Last {days} days")
+    return from_period(now - days * 86400, now, f"Last {days} days", limit)
+
+
+def for_year(year: int, limit: int = 25) -> Stats:
+    import datetime
+
+    start = datetime.datetime(year, 1, 1).timestamp()
+    end = datetime.datetime(year + 1, 1, 1).timestamp()
+    return from_period(start, end, str(year), limit)
+
+
+def from_period(start: float, end: float, title: str, limit: int = 25) -> Stats:
+    stats = Stats(title)
     songs, artists, albums, genres = Counter(), Counter(), Counter(), Counter()
-    for play in history(now - days * 86400):
+    for play in history(start):
+        if play.get("timestamp", 0) >= end:
+            continue
         artist = play.get("album_artist") or play.get("artist", "")
         songs[(play.get("track", ""), play.get("artist", ""))] += 1
         artists[play.get("artist", "")] += 1
