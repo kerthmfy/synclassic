@@ -194,6 +194,12 @@ QSplitter::handle:vertical {{ height: 1px; }}
 def apply(app: QApplication) -> None:
     """Apply the Aqua look to the whole app."""
     app.setStyle("Fusion")  # a neutral base so every control can be restyled the same on any OS
+    # Ask the OS for light window frames too (the title bar stays dark in macOS dark mode otherwise).
+    hints = app.styleHints()
+    if hasattr(hints, "setColorScheme"):  # Qt 6.8+
+        from PySide6.QtCore import Qt
+
+        hints.setColorScheme(Qt.ColorScheme.Light)
     font = QFont(font_family())
     font.setPixelSize(12)
     app.setFont(font)
