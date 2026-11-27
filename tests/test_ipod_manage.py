@@ -299,3 +299,22 @@ def test_duplicates_are_found_and_removed_without_losing_playlist_songs(tmp_path
     assert ids["LOW1"] not in titles and not (root / "iPod_Control/Music/F00/LOW1.m4a").exists()
     assert manage.find_cleanup(ipod).duplicates == []
     assert check(ipod).safe_to_manage
+
+
+def test_audiobooks_go_to_the_audiobooks_menu(tmp_path):
+    from synclassic.ipod import browse, itunesdb, manage
+    from synclassic.ipod.check import check
+    from synclassic.ipod.device import ipod_at
+    from tests.conftest import make_audio
+    from tests.test_ipod_read import fake_ipod, load
+
+    ipod = ipod_at(fake_ipod(tmp_path, load("captured-album-index-36.b64")))
+    book = make_audio(tmp_path / "book.m4a", seconds=2).rename(tmp_path / "Book.m4b")
+    assert manage.add_audiobooks(ipod, [book]) == 1
+    db = itunesdb.parse(ipod.database_path.read_bytes())
+    song = next(s for s in itunesdb.songs(db) if s.relative_path.endswith(".m4b"))
+    mhit = song.chunk
+    assert song.media_type == 0x08 and (mhit.u8(0xA5), mhit.u8(0xA6)) == (1, 1)
+    assert mhit.u32(0x18) == 0x4D344220  # "M4B "
+    assert browse.read(ipod).songs_of_kind("audiobook") == [song.id]
+    assert check(ipod).safe_to_manage

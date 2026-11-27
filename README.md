@@ -293,6 +293,10 @@ background" (every 3/6/12/24 hours, even with the app closed: a macOS LaunchAgen
 `synclassic update`; log in `~/Library/Logs/Synclassic-background.log`). Terminal:
 `synclassic background on --every 6`, `synclassic background off`. Only one update runs at a time.
 
+**Add Audiobooks…** (iPod menu, or `synclassic ipod audiobooks FILE.m4b`): audiobooks go to the
+iPod's Music → Audiobooks menu, remember where you stopped, are left out of shuffle, and keep the
+chapters of `.m4b` files.
+
 **Smart Playlists…** (iPod menu, or `synclassic ipod smart`): Recently Added, Recently Played,
 Top 25 Most Played, My Top Rated and Never Played, as real iPod smart playlists. The iPod keeps
 them up to date as you play, and every sync refreshes them.

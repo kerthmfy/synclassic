@@ -436,6 +436,16 @@ def cmd_ipod(args) -> int:
     if action == "art":
         return _fix_art(ipod, args)
 
+    if action == "audiobooks":
+        from synclassic.ipod import manage
+
+        paths = [pathlib.Path(name).expanduser() for name in args.names]
+        if not paths or not all(p.is_file() for p in paths):
+            say("Usage: synclassic ipod audiobooks FILE.m4b [FILE...]")
+            return 1
+        say(f"Added {manage.add_audiobooks(ipod, paths, say=say)} audiobooks.")
+        return 0
+
     if action == "smart":
         from synclassic.ipod import smart
 
@@ -808,7 +818,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_config)
 
     p = sub.add_parser("ipod", help="iPod: check (default, read-only), sync, restore a backup, eject, art (fix album art)")
-    p.add_argument("action", nargs="?", default="check", choices=["check", "sync", "restore", "eject", "art", "soundcheck", "smart"])
+    p.add_argument("action", nargs="?", default="check", choices=["check", "sync", "restore", "eject", "art", "soundcheck", "smart", "audiobooks"])
     p.add_argument("names", nargs="*", help="smart: which smart playlists to have")
     p.add_argument("backup", nargs="?", type=int, help="restore: backup number (see 'synclassic ipod restore')")
     p.add_argument("--path", help="the iPod's folder, if it isn't found automatically")

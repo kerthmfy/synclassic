@@ -187,6 +187,8 @@ class MainWindow(QMainWindow):
                                     "Fill in lyrics for songs that don't have them, on this Mac and on the iPod")
         self.info_fill_action = action("Fill In Genres && Years…", self.fill_in_info, None,
                                        "Look up missing genres and years for songs on this Mac and on the iPod")
+        self.audiobooks_action = action("Add Audiobooks…", self.add_audiobooks, None,
+                                        "Copy audiobooks (.m4b) to the iPod's Audiobooks menu")
         self.smart_action = action("Smart Playlists…", self.choose_smart_playlists, None,
                                    "Recently Added, Top 25 Most Played and more, kept up to date by the iPod")
         self.fix_art_action = action("Fix Album Art…", self.show_fix_art, None,
@@ -211,6 +213,7 @@ class MainWindow(QMainWindow):
             file_menu.addSeparator() if act is None else file_menu.addAction(act)
         ipod_menu = bar.addMenu("iPod")
         for act in (self.update_sync_action, self.sync_action, None, self.new_ipod_playlist_action, self.smart_action,
+                    self.audiobooks_action,
                     self.import_ipod_playlist_action, self.info_action, None, self.scrobble_action, None,
                     self.backups_action, self.cleanup_action, self.fix_art_action, self.lyrics_action,
                     self.info_fill_action, self.soundcheck_action, self.ipod_action, None, self.eject_action):
@@ -666,6 +669,8 @@ class MainWindow(QMainWindow):
                 self._add_source("Genres", ("ipod", "genres"), "genres", depth=1)
                 if contents.songs_of_kind("podcast"):
                     self._add_source("Podcasts", ("ipod", "podcasts"), "podcasts", depth=1)
+                if contents.songs_of_kind("audiobook"):
+                    self._add_source("Audiobooks", ("ipod", "audiobooks"), "music", depth=1)
                 for playlist in contents.playlists:
                     tip = "Smart playlist" if playlist.smart else ("Managed by Synclassic" if playlist.synclassic else "")
                     self._add_source(playlist.name, ("ipodpl", playlist.id), "smart" if playlist.smart else "playlist",
@@ -833,11 +838,12 @@ class MainWindow(QMainWindow):
             self.ipod_songs.set_songs(songs, keep_order=True)
             self.ipod_songs.reorderable = self._editable_playlist(playlist)
             self.stack.setCurrentIndex(3)
-        elif which in ("music", "podcasts"):
-            kind_name = "song" if which == "music" else "podcast"
+        elif which in ("music", "podcasts", "audiobooks"):
+            kind_name = {"music": "song", "podcasts": "podcast", "audiobooks": "audiobook"}[which]
             songs = [contents.songs[i] for i in contents.songs_of_kind(kind_name)]
-            self.title.setText("Music" if which == "music" else "Podcasts")
-            self.subtitle.setText(f"{len(songs):,} {'songs' if which == 'music' else 'episodes'} · {self._length(songs)} · on {name}")
+            self.title.setText({"music": "Music", "podcasts": "Podcasts", "audiobooks": "Audiobooks"}[which])
+            unit = {"music": "songs", "podcasts": "episodes", "audiobooks": "audiobooks"}[which]
+            self.subtitle.setText(f"{len(songs):,} {unit} · {self._length(songs)} · on {name}")
             self.ipod_songs.set_songs(songs)
             self.ipod_songs.reorderable = False
             if which == "music":
@@ -1505,6 +1511,24 @@ class MainWindow(QMainWindow):
                 self._load_ipod_contents()
 
         self._run_job("Filling in genres and years…", work, finished, verb="Looking up")
+
+    def add_audiobooks(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+
+        from synclassic.ipod import manage
+
+        if self.ipod is None:
+            QMessageBox.information(self, "No iPod", "Plug in your iPod first.")
+            return
+        files, _ = QFileDialog.getOpenFileNames(
+            self, "Add Audiobooks to the iPod", str(pathlib.Path.home()),
+            "Audiobooks (" + " ".join(f"*{ext}" for ext in manage.AUDIOBOOK_TYPES) + ")")
+        if not files:
+            return
+        paths = [pathlib.Path(f) for f in files]
+        self._ipod_edit("Copying audiobooks…", lambda ipod, backup: manage.add_audiobooks(ipod, paths, backup),
+                        select=lambda n: ("ipod", "audiobooks"),
+                        done_message=lambda n: f"Added {n} audiobook{'s' if n != 1 else ''}")
 
     def choose_smart_playlists(self) -> None:
         from synclassic.gui.maintenance_dialogs import SmartPlaylistsDialog

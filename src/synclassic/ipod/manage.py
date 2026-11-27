@@ -175,8 +175,8 @@ class EditSession:
             self.editor.update_song(song_id, changes)
         return len(song_ids)
 
-    def copy_file(self, path: pathlib.Path) -> int:
-        """Copy a song file from this computer onto the iPod. Returns its new song id."""
+    def copy_file(self, path: pathlib.Path, audiobook: bool = False) -> int:
+        """Copy a song file from this computer onto the iPod (as an audiobook, if asked). Returns its new song id."""
         extension = path.suffix.lower()
         if extension not in SUPPORTED:
             raise ManageError(f"The iPod can't play {extension} files.")
@@ -189,7 +189,12 @@ class EditSession:
         os.replace(tmp, target)
         self.copied.append(target)
         location = ":" + target.relative_to(self.ipod.root).as_posix().replace("/", ":")
-        song_id, dbid = self.editor.add_song(song_from_file(target, location, extension))
+        info = song_from_file(target, location, extension)
+        if audiobook:
+            info.audiobook = True
+            if extension == ".m4b":
+                info.filetype = "m4b"
+        song_id, dbid = self.editor.add_song(info)
         cover = artwork.embedded_cover(target)
         if cover:
             self.art_jobs.append((dbid, cover))
@@ -409,6 +414,22 @@ def find_cleanup(ipod: IPod) -> CleanupReport:
             report.missing.append((song.id, f"{song.artist} - {song.title}" if song.artist else song.title))
     report.duplicates = find_duplicates([s for s in songs if (ipod.root / s.relative_path).is_file()] if songs else [])
     return report
+
+
+AUDIOBOOK_TYPES = (".m4b", ".m4a", ".mp3", ".aac")
+
+
+def add_audiobooks(ipod: IPod, paths: list[pathlib.Path], make_backup: bool = True, say: Say = _quiet) -> int:
+    """Copy audiobooks to the iPod: listed under Music > Audiobooks, remembering where you
+    stopped and left out of shuffle. Chapters inside .m4b files work as on iTunes. Returns how many."""
+
+    def action(session: EditSession) -> int:
+        for path in paths:
+            say(f"Copying {path.name}")
+            session.copy_file(path, audiobook=True)
+        return len(paths)
+
+    return _run(ipod, make_backup, action, say)
 
 
 def remove_duplicates(ipod: IPod, groups: list[Duplicate], make_backup: bool = True) -> int:
