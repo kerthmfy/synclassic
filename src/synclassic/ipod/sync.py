@@ -110,12 +110,15 @@ class Plan:
     bytes_to_free: int = 0
     free_bytes: int = 0
     play_counts_pending: bool = False
+    art_backfill: list[tuple[int, LibraryTrack]] = field(default_factory=list)  # (dbid, item): added songs without art
+    artwork_ok: bool = False  # the iPod's artwork database can be updated
 
     @property
     def has_changes(self) -> bool:
         return bool(
             self.copy or self.remove_songs or self.remove_playlists or self.play_counts_pending
             or any(not p.unchanged and p.action != "wait" for p in self.playlists)
+            or (self.artwork_ok and bool(self.art_backfill))
         )
 
     @property
@@ -152,6 +155,11 @@ class Plan:
         if self.remove_songs:
             lines.append(f"  Remove {len(self.remove_songs)} songs Synclassic added that no playlist uses "
                          f"({self.bytes_to_free / gb:.2f} GB)")
+        art = sum(1 for item in self.copy) + len(self.art_backfill)
+        if self.artwork_ok and art:
+            lines.append(f"  Add album art for up to {art} songs" + (f" ({len(self.art_backfill)} added earlier without art)" if self.art_backfill else ""))
+        elif art:
+            lines.append("  ⚠ Album art can't be added on this iPod (its artwork database couldn't be read safely)")
         if self.play_counts_pending:
             lines.append("  Save plays, skips and ratings from the iPod")
         for item, reason in self.skipped[:10]:
@@ -276,6 +284,21 @@ def make_plan(library: Library, ipod: IPod, db: itunesdb.Chunk | None = None) ->
             if dbid not in plan.reuse.values():
                 plan.remove_songs.append(song)
                 plan.bytes_to_free += song.size
+    # Songs Synclassic added earlier that still have no album art (e.g. synced before art support).
+    from synclassic.ipod import artwork as art
+
+    art_dir = ipod.control / "Artwork"
+    try:
+        plan.artwork_ok = (art_dir / "ArtworkDB").is_file() and art.ArtworkWriter(art_dir).usable
+    except (OSError, itunesdb.DatabaseError):
+        plan.artwork_ok = False
+    if plan.artwork_ok:
+        for key, value in state["tracks"].items():
+            song = by_dbid.get(int(value["dbid"], 16))
+            item = wanted.get(key)
+            if (value.get("added") and song is not None and item is not None and song.chunk.u8(0xA4) != 1
+                    and item.has_file and song.dbid not in {s.dbid for s in plan.remove_songs}):
+                plan.art_backfill.append((song.dbid, item))
     return plan
 
 
@@ -294,7 +317,8 @@ def backup(ipod: IPod) -> pathlib.Path:
         folder, number = backup_dir(ipod) / f"{stamp}_{number}", number + 1
     folder.mkdir(parents=True)
     itunes = ipod.control / "iTunes"
-    for path in [itunes / "iTunesDB", itunes / "Play Counts", state_path(ipod), *playcounts.otg_files(itunes)]:
+    artwork_db = ipod.control / "Artwork" / "ArtworkDB"
+    for path in [itunes / "iTunesDB", itunes / "Play Counts", state_path(ipod), artwork_db, *playcounts.otg_files(itunes)]:
         if path.is_file():
             shutil.copy2(path, folder / path.name)
     backups = sorted(p for p in backup_dir(ipod).iterdir() if p.is_dir())
@@ -316,6 +340,9 @@ def restore(ipod: IPod, folder: pathlib.Path) -> None:
     for name in ("Play Counts",):
         if (folder / name).is_file():
             shutil.copy2(folder / name, ipod.control / "iTunes" / name)
+    if (folder / "ArtworkDB").is_file():
+        # Pixels are only ever appended to the .ithmb files, so the old ArtworkDB still matches them.
+        _write_atomically(ipod.control / "Artwork" / "ArtworkDB", (folder / "ArtworkDB").read_bytes())
     if (folder / "state.json").is_file():
         state_path(ipod).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(folder / "state.json", state_path(ipod))
@@ -480,7 +507,11 @@ def apply_plan(
     editor.remove_songs(removed)
     editor.finish()
 
-    # 5. Write the new database, check it, swap it in.
+    # 5. Album art: written before the music database, which then links to it.
+    if plan.artwork_ok:
+        _add_artwork(ipod, db, plan, new_dbids, say)
+
+    # 6. Write the new database, check it, swap it in.
     data = itunesdb.serialize(db)
     check_db = itunesdb.parse(data)
     if itunesdb.serialize(check_db) != data:
@@ -495,7 +526,7 @@ def apply_plan(
     say("Writing the iPod's database…")
     _write_atomically(ipod.database_path, data)
 
-    # 6. Clean up: old files, merged play counts, On-The-Go files; remember what we manage.
+    # 7. Clean up: old files, merged play counts, On-The-Go files; remember what we manage.
     for song in plan.remove_songs:
         (ipod.root / song.relative_path).unlink(missing_ok=True)
     if counts_file is not None and counts_file.is_file():
@@ -515,6 +546,38 @@ def apply_plan(
         os.sync()
     say("Sync complete.")
     return saved
+
+
+def _add_artwork(ipod: IPod, db: itunesdb.Chunk, plan: Plan, new_dbids: dict[str, int], say: Say) -> None:
+    from synclassic.ipod import artwork as art
+
+    jobs: list[tuple[int, pathlib.Path]] = [
+        (new_dbids[item.key], pathlib.Path(item.file_path)) for item in plan.copy if item.key in new_dbids  # type: ignore[arg-type]
+    ]
+    jobs += [(dbid, pathlib.Path(item.file_path)) for dbid, item in plan.art_backfill]  # type: ignore[arg-type]
+    removed_dbids = {song.dbid for song in plan.remove_songs}
+    if not jobs and not removed_dbids:
+        return
+    try:
+        writer = art.ArtworkWriter(ipod.control / "Artwork")
+        mhits = {s.dbid: s.chunk for s in itunesdb.songs(db)}
+        links = []
+        for dbid, path in jobs:
+            cover = art.embedded_cover(path)
+            if cover and dbid in mhits:
+                try:
+                    links.append((mhits[dbid], writer.add(dbid, cover), len(cover)))
+                except Exception as error:  # one unreadable image shouldn't stop the others
+                    say(f"  (no album art for {path.name}: {error})")
+        writer.remove_for(removed_dbids)
+        if links or removed_dbids:
+            writer.commit()
+        for mhit, image_id, size in links:
+            art.link_song(mhit, image_id, size)
+        if links:
+            say(f"Added album art for {len(links)} songs.")
+    except (OSError, itunesdb.DatabaseError) as error:
+        say(f"Album art was skipped this time ({error}); the music sync continues.")
 
 
 def eject(ipod: IPod) -> str:

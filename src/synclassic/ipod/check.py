@@ -34,6 +34,10 @@ class CheckReport:
     index_types: list[int] = field(default_factory=list)
     jump_tables: dict[int, bool] = field(default_factory=dict)
     write_test: str = ""  # "" = not run, "ok", or what went wrong
+    artwork_round_trip: bool = False
+    artwork_images: int = 0
+    artwork_sizes: list[tuple[int, int, int]] = field(default_factory=list)
+    artwork_error: str = ""
     problems: list[str] = field(default_factory=list)
 
     @property
@@ -109,6 +113,17 @@ def check(ipod: IPod) -> CheckReport:
 
     report.play_counts_file = (ipod.control / "iTunes" / "Play Counts").is_file()
     report.artwork_db = (ipod.control / "Artwork" / "ArtworkDB").is_file()
+    if report.artwork_db:
+        from synclassic.ipod import artwork as art
+
+        try:
+            art_raw = (ipod.control / "Artwork" / "ArtworkDB").read_bytes()
+            art_db = art.parse(art_raw)
+            report.artwork_round_trip = art.serialize(art_db) == art_raw
+            report.artwork_images = len(art.images(art_db))
+            report.artwork_sizes = [(s.format_id, s.width, s.height) for s in art.size_specs(art_db)]
+        except (OSError, itunesdb.DatabaseError) as error:
+            report.artwork_error = str(error)
     return report
 
 
@@ -207,7 +222,16 @@ def format_report(report: CheckReport) -> list[str]:
                 line += f" (differ: {', '.join(differ)}; existing songs keep the iPod's letters)"
             lines.append(line)
         lines.append(f"  · Play counts waiting to be read: {'yes' if report.play_counts_file else 'no'}")
-        lines.append(f"  · Album artwork database: {'yes' if report.artwork_db else 'no'}")
+        if not report.artwork_db:
+            lines.append("  · Album artwork database: none (album art can't be added yet)")
+        elif report.artwork_error:
+            lines.append(f"  ⚠ Album artwork database couldn't be read: {report.artwork_error} (album art will be skipped)")
+        else:
+            sizes = ", ".join(f"{w}×{h}" for _, w, h in report.artwork_sizes) or "unknown sizes"
+            lines.append(
+                f"  · Album artwork: {report.artwork_images} images, sizes {sizes}; "
+                + ("rebuilds byte-for-byte ✓" if report.artwork_round_trip else "can't be rebuilt exactly (album art will be skipped)")
+            )
         lines.append("")
         lines.append(
             "  ✓ Synclassic can rebuild this database byte-for-byte."

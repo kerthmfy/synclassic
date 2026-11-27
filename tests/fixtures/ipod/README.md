@@ -6,3 +6,9 @@ copied from iOpenPod's test fixtures (https://github.com/TheRealSavi/iOpenPod,
 iOpenPod; the second is an anonymized 60-song database reconstructed from a real iPod
 (fabricated names and IDs). Synclassic uses them to check that unchanged databases
 round-trip byte-for-byte.
+
+`artworkdb-original-empty.b64`, `artworkdb-original-with-unknown-data.b64` and
+`artworkdb-nano6-original-1x.b64` are ArtworkDB files from iOpenPod's
+`tests/fixtures/ArtworkDB/` (an empty database, one with deliberate unknown data, and one
+with a single image in four sizes). Synclassic uses them to check that unchanged artwork
+databases round-trip byte-for-byte.

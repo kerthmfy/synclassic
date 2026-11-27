@@ -209,7 +209,11 @@ Safety: the iPod's database is backed up before every sync (the last 10 are kept
 synclassic ipod restore
 ```
 
-Not yet: album artwork for newly added songs (coming next; songs show without art until then).
+Album art: songs Synclassic copies get their cover (the one embedded in the downloaded
+file) in the sizes your iPod uses (100×100 and 200×200 on the 5G/5.5G). Songs added before
+album art was supported get it on the next sync. Covers shared by several songs are stored
+once. Existing artwork is never changed: the image files are only ever added to, and the
+artwork database is backed up with the music database.
 
 ## Settings
 
