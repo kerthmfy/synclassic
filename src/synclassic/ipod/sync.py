@@ -441,6 +441,7 @@ def song_info(path: pathlib.Path, item: LibraryTrack, location: str) -> NewSong:
         artist=track.artist,
         album=track.album,
         album_artist=track.album_artist or track.primary_artist,
+        genre=track.genre,
         track_number=track.track_number or 0,
         disc_number=track.disc_number or 0,
         year=year,

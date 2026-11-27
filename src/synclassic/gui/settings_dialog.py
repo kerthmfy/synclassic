@@ -116,6 +116,9 @@ class SettingsDialog(QDialog):
         self.lyrics = QCheckBox("Lyrics: put each song's lyrics inside it (from lrclib.net); the iPod shows them")
         self.lyrics.setChecked(self.settings.lyrics)
         form.addRow("", self.lyrics)
+        self.song_info = QCheckBox("Fill in genre and year (from Deezer / Apple Music) when Spotify doesn't give them")
+        self.song_info.setChecked(self.settings.song_info)
+        form.addRow("", self.song_info)
         self.full_reader = QCheckBox("Read playlists over 100 songs in full from Spotify's web page")
         self.full_reader.setChecked(self.settings.full_playlist_reader)
         self.full_reader.setToolTip(
@@ -309,6 +312,7 @@ class SettingsDialog(QDialog):
         self.settings.full_playlist_reader = self.full_reader.isChecked()
         self.settings.sound_check = self.sound_check.isChecked()
         self.settings.lyrics = self.lyrics.isChecked()
+        self.settings.song_info = self.song_info.isChecked()
         self.settings.folder_layout = self.layout_choice.currentData()
         self.settings.scrobble_after_sync = self.scrobble_after.isChecked()
         from synclassic import lastfm

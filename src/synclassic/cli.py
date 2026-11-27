@@ -488,6 +488,26 @@ def cmd_lyrics(args) -> int:
     return 0
 
 
+def cmd_info(args) -> int:
+    from synclassic.ipod import info_fill
+    from synclassic.ipod.device import find_ipods
+
+    library = open_library()
+    try:
+        say("Looking up missing genres and years for songs on this Mac…")
+        result = info_fill.fill_library(library, progress=lambda n, total, text: say(f"  [{n}/{total}] {text}"), say=say)
+        say("Mac: " + result.summary())
+        ipods = [] if args.mac_only else find_ipods()
+        if ipods:
+            say(f"…and on {ipods[0].name}")
+            result = info_fill.fill_ipod(ipods[0], library, progress=lambda n, total, text: say(f"  [{n}/{total}] {text}"),
+                                         say=say)
+            say("iPod: " + result.summary())
+    finally:
+        library.close()
+    return 0
+
+
 def _fix_art(ipod, args) -> int:
     from synclassic.ipod import art_fix
 
@@ -753,6 +773,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("lyrics", help="put lyrics inside songs that don't have them (this Mac and the iPod)")
     p.add_argument("--mac-only", action="store_true", help="leave the iPod alone")
     p.set_defaults(func=cmd_lyrics)
+
+    p = sub.add_parser("info", help="fill in missing genres and years (this Mac and the iPod)")
+    p.add_argument("--mac-only", action="store_true", help="leave the iPod alone")
+    p.set_defaults(func=cmd_info)
 
     p = sub.add_parser("install-app", help="make a double-clickable Synclassic.app (macOS)")
     p.add_argument("--dest", help="folder to put it in (default ~/Applications)")

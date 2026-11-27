@@ -32,6 +32,14 @@ def isolated_home(tmp_path, monkeypatch):
         original(self, get or (lambda url, params: SimpleNamespace(status_code=404, json=lambda: None)), sleep)
 
     monkeypatch.setattr(lyrics.LyricsFinder, "__init__", offline)
+    from synclassic import song_info
+
+    original_info = song_info.InfoFinder.__init__
+
+    def offline_info(self, get=None, sleep=lambda s: None):
+        original_info(self, get or (lambda url, params: SimpleNamespace(status_code=404, json=lambda: None)), sleep)
+
+    monkeypatch.setattr(song_info.InfoFinder, "__init__", offline_info)
     return home
 
 

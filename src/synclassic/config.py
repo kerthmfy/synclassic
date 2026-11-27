@@ -54,6 +54,8 @@ class Settings:
     sound_check: bool = True
     # Put lyrics (from LRCLIB) inside downloaded songs; the iPod shows them.
     lyrics: bool = True
+    # Fill in genre and year (from Deezer / Apple Music) when Spotify doesn't give them.
+    song_info: bool = True
 
     @property
     def music_path(self) -> pathlib.Path:
@@ -71,6 +73,7 @@ SETTING_HELP = {
     "folder_layout": "artist (Artist/Album/Song) or playlist (one folder per playlist)",
     "sound_check": "on/off: measure loudness so the iPod's Sound Check evens out volume",
     "lyrics": "on/off: put lyrics (from lrclib.net) inside downloaded songs",
+    "song_info": "on/off: fill in genre and year from Deezer / Apple Music",
 }
 
 
@@ -123,7 +126,7 @@ def set_setting(settings: Settings, key: str, value: str) -> None:
         value = value.lower()
         if value not in ("artist", "playlist"):
             raise ValueError("folder_layout must be artist or playlist")
-    elif key in ("full_playlist_reader", "sound_check", "lyrics"):
+    elif key in ("full_playlist_reader", "sound_check", "lyrics", "song_info"):
         lowered = value.lower()
         if lowered not in ("on", "off", "true", "false", "yes", "no", "1", "0"):
             raise ValueError(f"{key} must be on or off")

@@ -214,6 +214,14 @@ def save_candidate(
         say(f"    download failed: {error}")
         return "failed"
 
+    if settings.song_info and not (item.track.genre and item.track.year):
+        from synclassic import song_info
+
+        try:
+            song_info.complete(item.track, song_info.InfoFinder(), song_info.InfoLookups(library))
+        except Exception as error:  # a bonus; never lose the download over it
+            say(f"    (no genre/year this time: {error})")
+
     cover = artwork.best_cover(_cover_candidates(item, cand), fetch=tagging.fetch_cover)
     try:
         tagging.tag_file(download.path, item.track, cover, cand.video_id)

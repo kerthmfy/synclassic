@@ -50,6 +50,8 @@ def _tag_mp4(path: pathlib.Path, track: Track, cover: bytes | None, youtube_id: 
         tags["\xa9alb"] = [track.album]
     if track.release_date:
         tags["\xa9day"] = [track.release_date[:10]]
+    if track.genre:
+        tags["\xa9gen"] = [track.genre]
     if track.track_number:
         tags["trkn"] = [(track.track_number, 0)]
     if track.disc_number:
@@ -66,7 +68,7 @@ def _tag_mp4(path: pathlib.Path, track: Track, cover: bytes | None, youtube_id: 
 
 
 def _tag_mp3(path: pathlib.Path, track: Track, cover: bytes | None, youtube_id: str | None) -> None:
-    from mutagen.id3 import APIC, ID3, TALB, TDRC, TIT2, TPE1, TPE2, TPOS, TRCK, TXXX, ID3NoHeaderError
+    from mutagen.id3 import APIC, ID3, TALB, TCON, TDRC, TIT2, TPE1, TPE2, TPOS, TRCK, TXXX, ID3NoHeaderError
 
     try:
         tags = ID3(path)
@@ -84,6 +86,8 @@ def _tag_mp3(path: pathlib.Path, track: Track, cover: bytes | None, youtube_id: 
         tags.add(TALB(encoding=3, text=track.album))
     if track.release_date:
         tags.add(TDRC(encoding=3, text=track.release_date[:10]))
+    if track.genre:
+        tags.add(TCON(encoding=3, text=track.genre))
     if track.track_number:
         tags.add(TRCK(encoding=3, text=str(track.track_number)))
     if track.disc_number:
@@ -122,3 +126,31 @@ def embed_cover(path: pathlib.Path, cover: bytes) -> None:
         tags.save(path)
     else:
         raise ValueError(f"Can't put a cover inside {suffix} files")
+
+
+def update_info(path: pathlib.Path, genre: str = "", year: str = "") -> None:
+    """Set a file's genre and/or year, leaving everything else as it is."""
+    suffix = path.suffix.lower()
+    if suffix in (".m4a", ".m4b", ".mp4", ".aac"):
+        from mutagen.mp4 import MP4
+
+        audio = MP4(path)
+        if audio.tags is None:
+            audio.add_tags()
+        if genre:
+            audio.tags["\xa9gen"] = [genre]
+        if year:
+            audio.tags["\xa9day"] = [year]
+        audio.save()
+    elif suffix == ".mp3":
+        from mutagen.id3 import ID3, TCON, TDRC, ID3NoHeaderError
+
+        try:
+            tags = ID3(path)
+        except ID3NoHeaderError:
+            tags = ID3()
+        if genre:
+            tags.setall("TCON", [TCON(encoding=3, text=genre)])
+        if year:
+            tags.setall("TDRC", [TDRC(encoding=3, text=year)])
+        tags.save(path, v2_version=3)

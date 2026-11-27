@@ -273,6 +273,11 @@ Lyrics…** (File or iPod menu, or `synclassic lyrics`) fills in songs you alrea
 Mac and on the iPod, including songs Synclassic didn't add. Songs lrclib.net doesn't know are
 asked about again after a month. Turn off in Settings (or `synclassic config lyrics off`).
 
+**Genres & years**: Spotify doesn't give songs a genre, so Synclassic fills in each download's
+genre and year from Deezer's catalogue (Apple Music's as a fallback); the iPod's Genres menu
+then works. **Fill In Genres & Years…** (File or iPod menu, or `synclassic info`) does the same
+for songs you already have, on this Mac and on the iPod; nothing already filled in changes.
+
 **Fix Album Art…** (iPod menu, File menu, or `synclassic ipod art`): finds albums whose cover
 is missing or small enough to look pixelated (under 300 px), on the iPod and among the songs
 on your Mac, and looks for sharp ones: the album's Spotify cover for songs Synclassic

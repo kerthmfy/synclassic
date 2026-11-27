@@ -21,6 +21,7 @@ class Track:
     release_date: str = ""
     explicit: bool | None = None
     cover_url: str | None = None
+    genre: str = ""
     # Set when the song already exists as a file on this computer (M3U imports).
     local_path: str | None = None
 
