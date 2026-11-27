@@ -411,3 +411,34 @@ def test_settings_has_tabs_and_saves_lastfm_keys(app):
     dialog.lastfm_secret.setText("b" * 32)
     dialog._save()
     assert lastfm.load_credentials() == {"api_key": "a" * 32, "secret": "b" * 32}
+
+
+def test_double_click_plays_from_the_ipod(app, monkeypatch, tmp_path):
+    from synclassic.gui import player as player_module
+    from synclassic.gui.main_window import MainWindow
+    from tests.test_ipod_read import fake_ipod, load
+    from tests.test_player import FakeBackend
+
+    monkeypatch.setattr(player_module.Player, "_make_backend", lambda self: FakeBackend())
+    root = fake_ipod(tmp_path, load("captured-album-index-36.b64"))
+    monkeypatch.setenv("SYNCLASSIC_IPOD", str(root))
+    window = MainWindow()
+    assert wait_until(app, lambda: window.ipod_contents is not None)
+    for i in range(window.sidebar.topLevelItemCount()):
+        item = window.sidebar.topLevelItem(i)
+        if item.data(0, 256) == ("ipod", "music"):
+            window.sidebar.setCurrentItem(item)
+    # The sample database has no file paths; give every song one so it can be "played".
+    for song in window.ipod_contents.songs.values():
+        song.path = song.path or f"iPod_Control/Music/F00/{song.id}.m4a"
+    index = window.ipod_songs.model().index(2, 0)
+    window.ipod_songs.doubleClicked.emit(index)
+    expected = index.data()
+    assert window.player.current.title == expected
+    assert window.status_label.text() == expected and window.lcd.seek_row.isVisibleTo(window)
+    assert window.ipod_songs.source.playing_id == window.player.current.key[1]
+    window.play_pause()
+    assert window.play_action.text() == "Play"
+    window.player.next()
+    assert window.player.current.title == window.ipod_songs.model().index(3, 0).data()
+    window.close()

@@ -116,3 +116,17 @@ def submit(client=None, now: float | None = None):
     save_queue(keep)
     result.left = len(keep)
     return result
+
+
+def add_play(artist: str, track: str, album: str, album_artist: str, duration_s: int, timestamp: int) -> bool:
+    """Queue one play heard in the app (not on the iPod). Returns False if it was already queued."""
+    if not artist or not track:
+        return False
+    queue = load_queue()
+    if any(p["timestamp"] == timestamp and p["track"] == track and p["artist"] == artist for p in queue):
+        return False
+    queue.append({"artist": artist, "track": track, "album": album, "album_artist": album_artist,
+                  "duration": duration_s, "timestamp": timestamp, "dbid": "mac"})
+    queue.sort(key=lambda p: p["timestamp"])
+    save_queue(queue)
+    return True

@@ -64,6 +64,11 @@ by the YouTube downloader. Next time, open Terminal, `cd synclassic`, and run
 - **Needs attention**: songs that weren't found or might be the wrong version.
   Double-click a song to see the closest YouTube Music results, **play a preview**, search
   with your own words or paste a link, then **Download this version**.
+- **Play music**: double-click a song (in your playlists or on the iPod) and the list plays from
+  there. ⏮ ▶ ⏭ and volume are top left; the LCD shows the song with a bar you can drag to seek;
+  the cover shows under the source list. Shuffle and repeat are in the bottom bar. Space plays
+  and pauses; ⌘→ / ⌘← skip. Songs you listen to past half way (or 4 minutes) are scrobbled to
+  Last.fm too.
 - Right-click a song or playlist for more (search again, show in Finder, rename, remove).
 - **Settings**: music folder, M4A/MP3, YouTube sign-in browser, and the Spotify login.
 

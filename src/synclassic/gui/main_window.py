@@ -38,6 +38,7 @@ from synclassic.gui.full_reader_bridge import FullReaderBridge
 from synclassic.gui.picker_dialog import fmt_time, open_picker
 from synclassic.gui.settings_dialog import SettingsDialog
 from synclassic.gui.ipod_views import AlbumsPage, BrowserPage, SongTable
+from synclassic.gui.player import Player, PlayItem
 from synclassic.gui.widgets import (
     COUNT_ROLE,
     DEPTH_ROLE,
@@ -51,6 +52,7 @@ from synclassic.gui.widgets import (
     SourceList,
     SourceListDelegate,
     StatusPillDelegate,
+    speaker_pixmap,
 )
 from synclassic.gui.workers import Task, run_in_background
 from synclassic.library import Library, LibraryPlaylist, LibraryTrack
@@ -106,6 +108,12 @@ class MainWindow(QMainWindow):
         self.ipod_contents = None  # what's on it (synclassic.ipod.browse.Contents), loaded in the background
         self._backed_up: set = set()  # iPods backed up this session (edits back up once per session)
         self._pending_key = None  # a source to select as soon as it appears (e.g. a new iPod playlist)
+        self._playing_key = None
+        self.player = Player(self)
+        self.player.track_changed.connect(self._track_changed)
+        self.player.position_changed.connect(self._position_changed)
+        self.player.playing_changed.connect(self._playing_changed)
+        self.player.error.connect(self.say)
 
         self._build_actions()
         self._build_menus()
@@ -165,6 +173,12 @@ class MainWindow(QMainWindow):
         self.scrobble_action = action("Scrobble to Last.fm", lambda: self.scrobble_now())
         self.folder_action = action("Show Music Folder", lambda: reveal_in_finder(load_settings().music_path))
         self.settings_action = action("Settings…", self.open_settings, QKeySequence.StandardKey.Preferences)
+        self.play_action = action("Play", lambda: self.play_pause(), QKeySequence(Qt.Key.Key_Space))
+        self.next_action = action("Next Song", lambda: self.player.next(), QKeySequence("Ctrl+Right"))
+        self.previous_action = action("Previous Song", lambda: self.player.previous(), QKeySequence("Ctrl+Left"))
+        self.shuffle_action = action("Shuffle", lambda: self._set_shuffle(self.shuffle_action.isChecked()))
+        self.shuffle_action.setCheckable(True)
+        self.repeat_action = action("Repeat: Off", lambda: self._cycle_repeat())
         self.log_action = action("Show Activity", self._toggle_log, QKeySequence("Ctrl+L"))
         self.log_action.setCheckable(True)
 
@@ -179,6 +193,9 @@ class MainWindow(QMainWindow):
                     self.import_ipod_playlist_action, self.info_action, None, self.scrobble_action, None,
                     self.backups_action, self.cleanup_action, self.ipod_action, None, self.eject_action):
             ipod_menu.addSeparator() if act is None else ipod_menu.addAction(act)
+        controls = bar.addMenu("Controls")
+        for act in (self.play_action, self.next_action, self.previous_action, None, self.shuffle_action, self.repeat_action):
+            controls.addSeparator() if act is None else controls.addAction(act)
         view_menu = bar.addMenu("View")
         view_menu.addAction(self.log_action)
         help_menu = bar.addMenu("Help")
@@ -202,12 +219,46 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout(bar)
         row.setContentsMargins(12, 6, 12, 6)
         row.setSpacing(4)
+        from PySide6.QtWidgets import QSlider
+
+        self.prev_button = self._glossy("prev", "", self.previous_action, 30)
+        self.play_button = self._glossy("play", "", self.play_action, 40)
+        self.next_button = self._glossy("next", "", self.next_action, 30)
+        for button in (self.prev_button, self.play_button, self.next_button):
+            row.addWidget(button, 0, Qt.AlignmentFlag.AlignVCenter)
+        volume = QHBoxLayout()
+        volume.setSpacing(3)
+        quiet, loud = QLabel(), QLabel()
+        quiet.setPixmap(speaker_pixmap(0, 12))
+        loud.setPixmap(speaker_pixmap(2, 12))
+        for label in (quiet, loud):
+            label.setStyleSheet("background: transparent;")
+        self.volume = QSlider(Qt.Orientation.Horizontal)
+        self.volume.setRange(0, 100)
+        self.volume.setValue(80)
+        self.volume.setFixedWidth(80)
+        self.volume.setStyleSheet(
+            "QSlider { background: transparent; }"
+            "QSlider::groove:horizontal { height: 4px; border: 1px solid #6e6e6e; border-radius: 2px; background: #f4f4f4; }"
+            "QSlider::sub-page:horizontal { border-radius: 2px; background: #8d8d8d; }"
+            "QSlider::handle:horizontal { width: 12px; margin: -5px 0; border-radius: 6px; border: 1px solid #5b5b5b;"
+            " background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #ffffff, stop:1 #b9b9b9); }"
+        )
+        self.volume.valueChanged.connect(self.player.set_volume)
+        volume.addWidget(quiet)
+        volume.addWidget(self.volume)
+        volume.addWidget(loud)
+        row.addSpacing(6)
+        row.addLayout(volume)
+        row.addSpacing(18)
         for symbol, label, act in (("plus", "Add", self.add_action), ("refresh", "Update", self.update_action),
                                    ("stop", "Stop", self.stop_action)):
-            row.addWidget(self._glossy(symbol, label, act))
+            row.addWidget(self._glossy(symbol, label, act, 30))
         row.addStretch(1)
         self.lcd = LcdDisplay()
-        self.lcd.setFixedWidth(440)
+        self.lcd.setMinimumWidth(340)
+        self.lcd.setMaximumWidth(460)
+        self.lcd.seek.sliderReleased.connect(lambda: self.player.seek(self.lcd.seek.value()))
         row.addWidget(self.lcd)
         row.addStretch(1)
         self.search = QLineEdit()
@@ -252,7 +303,26 @@ class MainWindow(QMainWindow):
         self.sidebar.currentItemChanged.connect(self._sidebar_changed)
         self.sidebar.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.sidebar.customContextMenuRequested.connect(self._sidebar_menu)
-        splitter.addWidget(self.sidebar)
+        source_column = QWidget()
+        source_column.setStyleSheet(f"background: {theme.SOURCE_LIST};")
+        column = QVBoxLayout(source_column)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(0)
+        column.addWidget(self.sidebar, 1)
+        self.artwork_title = QLabel("  Now Playing")
+        self.artwork_title.setFixedHeight(20)
+        self.artwork_title.setStyleSheet(
+            "color: #3b3b3b; font-size: 11px; border-top: 1px solid #9aa5b3;"
+            "background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #eef1f5, stop:1 #c9d1db);"
+        )
+        self.artwork = QLabel()
+        self.artwork.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.artwork.setMinimumHeight(150)
+        self.artwork.setStyleSheet("background: #1f1f1f;")
+        for widget in (self.artwork_title, self.artwork):
+            widget.hide()
+            column.addWidget(widget)
+        splitter.addWidget(source_column)
 
         right = QWidget()
         right_layout = QVBoxLayout(right)
@@ -303,7 +373,7 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
         header.resizeSection(5, 118)
-        self.table.itemDoubleClicked.connect(lambda *_: self.pick_selected())
+        self.table.itemDoubleClicked.connect(lambda *_: self._library_double_clicked())
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._table_menu)
 
@@ -324,6 +394,8 @@ class MainWindow(QMainWindow):
             table.customContextMenuRequested.connect(lambda pos, t=table: self._ipod_song_menu(t, pos))
             table.delete_pressed.connect(lambda t=table: self._delete_pressed(t))
         self.ipod_songs.reorder_requested.connect(self._reorder)
+        for table in self._ipod_tables():
+            table.doubleClicked.connect(lambda index, t=table: self._play_from_table(t, index.row()))
         right_layout.addWidget(self.stack, 1)
 
         self.log = QPlainTextEdit()
@@ -460,6 +532,24 @@ class MainWindow(QMainWindow):
         row.addWidget(square("+", "Add playlists", self.add_playlists))
         row.addWidget(square("⚙", "Settings", self.open_settings))
         row.addWidget(square("▤", "Show music folder", self.folder_action.trigger))
+        row.addSpacing(10)
+        from PySide6.QtCore import QSize
+        from PySide6.QtGui import QIcon
+
+        from synclassic.gui.widgets import control_pixmap
+
+        self.shuffle_button = square("", "Shuffle", lambda: self.shuffle_action.trigger())
+        self.shuffle_button.setCheckable(True)
+        self.shuffle_button.setIcon(QIcon(control_pixmap("shuffle")))
+        self.repeat_button = square("", "Repeat: Off", lambda: self.repeat_action.trigger())
+        self.repeat_button.setCheckable(True)
+        self.repeat_button.setIcon(QIcon(control_pixmap("repeat")))
+        for button in (self.shuffle_button, self.repeat_button):
+            button.setIconSize(QSize(16, 16))
+        for button in (self.shuffle_button, self.repeat_button):
+            button.setStyleSheet(button.styleSheet() + " QPushButton:checked { color: #1f5fbf;"
+                                 " background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #c9dcf5, stop:1 #a8c4ea); }")
+            row.addWidget(button)
         row.addStretch(1)
         self.summary_label = QLabel("")
         self.summary_label.setStyleSheet("background: transparent; color: #1f1f1f; font-size: 11px;")
@@ -578,6 +668,10 @@ class MainWindow(QMainWindow):
     def _idle_lcd(self) -> None:
         if self.lcd.bar.isVisible():
             return
+        item = self.player.current
+        if item is not None:
+            self.lcd.show_now_playing(item.title, item.line)
+            return
         if not self.status_label.text() or self.status_label.text() in ("Ready", "Synclassic"):
             self.status_label.setText("Synclassic")
         ipod = f"{self.ipod.name} connected" if self.ipod is not None else "No iPod connected"
@@ -650,6 +744,8 @@ class MainWindow(QMainWindow):
             row.setData(0, Qt.ItemDataRole.UserRole, item.id)
             row.setTextAlignment(0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             row.setForeground(0, Qt.GlobalColor.gray)
+            if self._playing_key == ("lib", item.id):
+                row.setIcon(0, self._speaker_icon())
             tip = item.error or item.match_notes or ""
             if tip:
                 row.setToolTip(5, tip)
@@ -958,6 +1054,165 @@ class MainWindow(QMainWindow):
             if song and self.ipod:
                 reveal_in_finder(self.ipod.root / song.path)
 
+    # --- playback ----------------------------------------------------------------------------------
+
+    def _speaker_icon(self):
+        from PySide6.QtGui import QIcon
+
+        from synclassic.gui.widgets import speaker_icon
+
+        if not hasattr(self, "_speaker_cache"):
+            self._speaker_cache = speaker_icon()
+        return self._speaker_cache
+
+    def play_pause(self) -> None:
+        if self.player.current is not None:
+            self.player.toggle()
+            return
+        # Nothing loaded yet: play the selected song (or the list from the top).
+        table = self._focused_ipod_table() if self.stack.currentIndex() in (3, 4, 5, 6) else None
+        if table is not None:
+            rows = sorted(i.row() for i in table.selectionModel().selectedRows())
+            self._play_from_table(table, rows[0] if rows else 0)
+        elif self.stack.currentIndex() == 0:
+            self._library_double_clicked(start_at_selection=True)
+
+    def _library_items(self) -> list[tuple[PlayItem, int]]:
+        """The library list's playable songs, as (item, row)."""
+        items = []
+        for row in range(self.table.topLevelItemCount()):
+            tree_item = self.table.topLevelItem(row)
+            if tree_item.isHidden():
+                continue
+            track = self.library.track(tree_item.data(0, Qt.ItemDataRole.UserRole))
+            if track is None or not track.has_file:
+                continue
+            t = track.track
+            items.append((PlayItem(pathlib.Path(track.file_path), t.title, t.artist, t.album, t.album_artist,
+                                   t.duration_ms or 0, ("lib", track.id)), row))
+        return items
+
+    def _library_double_clicked(self, start_at_selection: bool = False) -> None:
+        current = self.table.currentItem()
+        if current is None and not start_at_selection:
+            return
+        track = self.library.track(current.data(0, Qt.ItemDataRole.UserRole)) if current else None
+        if self.current_key == ATTENTION or (track is not None and not track.has_file):
+            self.pick_selected()  # nothing to play: choose a version instead
+            return
+        items = self._library_items()
+        if not items:
+            return
+        rows = [row for _, row in items]
+        start = rows.index(self.table.indexOfTopLevelItem(current)) if current and self.table.indexOfTopLevelItem(current) in rows else 0
+        self.player.play_list([item for item, _ in items], start)
+
+    def _play_from_table(self, table, row: int) -> None:
+        contents, ipod = self.ipod_contents, self.ipod
+        if contents is None or ipod is None:
+            return
+        ids = table.song_ids_in_view()
+        items, start = [], 0
+        for n, song_id in enumerate(ids):
+            song = contents.songs.get(song_id)
+            if song is None or not song.path:
+                continue
+            if n == row:
+                start = len(items)
+            items.append(PlayItem(ipod.root / song.path, song.title, song.artist, song.album, song.album_artist,
+                                  song.length_ms, ("ipod", song.id), contents.covers.get(song.dbid)))
+        self.player.play_list(items, start)
+
+    def _set_shuffle(self, on: bool) -> None:
+        self.player.set_shuffle(on)
+        self.shuffle_button.setChecked(on)
+
+    def _cycle_repeat(self) -> None:
+        mode = self.player.cycle_repeat()
+        label = {"off": "Repeat: Off", "all": "Repeat: All", "one": "Repeat: One"}[mode]
+        self.repeat_action.setText(label)
+        self.repeat_button.setChecked(mode != "off")
+        from PySide6.QtGui import QIcon
+
+        from synclassic.gui.widgets import control_pixmap
+
+        self.repeat_button.setIcon(QIcon(control_pixmap("repeat_one" if mode == "one" else "repeat")))
+        self.repeat_button.setToolTip(label)
+
+    def _playing_changed(self, playing: bool) -> None:
+        self.play_button.symbol = "pause" if playing else "play"
+        self.play_button.update()
+        self.play_action.setText("Pause" if playing else "Play")
+
+    def _track_changed(self, item) -> None:
+        self._playing_key = item.key if item is not None else None
+        song_id = item.key[1] if item is not None and item.key and item.key[0] == "ipod" else None
+        for table in self._ipod_tables():
+            table.source.set_playing(song_id)
+        for row in range(self.table.topLevelItemCount()):
+            tree_item = self.table.topLevelItem(row)
+            playing = self._playing_key == ("lib", tree_item.data(0, Qt.ItemDataRole.UserRole))
+            from PySide6.QtGui import QIcon
+
+            tree_item.setIcon(0, self._speaker_icon() if playing else QIcon())
+        if item is None:
+            self.lcd.hide_now_playing()
+            self.artwork.hide()
+            self.artwork_title.hide()
+            self._playing_changed(False)
+            if self.job is None:
+                self.status_label.setText("Synclassic")
+                self._idle_lcd()
+            return
+        if self.job is None:
+            self.lcd.show_now_playing(item.title, item.line)
+        self._load_artwork(item)
+
+    def _position_changed(self, position: int, duration: int) -> None:
+        if self.job is None:
+            if not self.lcd.seek_row.isVisible() and self.player.current is not None:
+                self._idle_lcd()
+            self.lcd.set_times(position, duration)
+
+    def _load_artwork(self, item) -> None:
+        from PySide6.QtGui import QImage, QPixmap
+
+        from synclassic.ipod import artwork as art
+        from synclassic.ipod import browse
+
+        ipod = self.ipod
+
+        def work(task):
+            data = art.embedded_cover(item.path)
+            if data:
+                image = QImage.fromData(data)
+                if not image.isNull():
+                    return image
+            if item.cover and ipod is not None:
+                picture = browse.cover(ipod, item.cover)
+                if picture is not None:
+                    raw = picture.tobytes()
+                    return QImage(raw, picture.width, picture.height, picture.width * 3, QImage.Format.Format_RGB888).copy()
+            return None
+
+        def show(image):
+            if self.player.current is not item:
+                return
+            self.artwork_title.show()
+            self.artwork.show()
+            width = max(120, self.sidebar.width())
+            if image is None:
+                from synclassic.gui.ipod_views import placeholder_cover
+
+                pixmap = placeholder_cover(width)
+            else:
+                pixmap = QPixmap.fromImage(image).scaled(width, width, Qt.AspectRatioMode.KeepAspectRatio,
+                                                         Qt.TransformationMode.SmoothTransformation)
+            self.artwork.setFixedHeight(pixmap.height())
+            self.artwork.setPixmap(pixmap)
+
+        run_in_background(self, work, show, lambda error: None)
+
     def _update_scrobble_count(self) -> None:
         from synclassic import scrobble
 
@@ -1197,6 +1452,8 @@ class MainWindow(QMainWindow):
         root = ipod.root if ipod else None
         if root == self._ipod_root:
             return
+        if self._ipod_root is not None and root != self._ipod_root:
+            self.player.stop_if_from(self._ipod_root)
         self._ipod_root = root
         self.ipod = ipod
         self.ipod_contents = None
@@ -1287,6 +1544,7 @@ class MainWindow(QMainWindow):
         if self.job is not None:
             QMessageBox.information(self, "Busy", "Wait for the current task to finish first.")
             return
+        self.player.stop_if_from(self.ipod.root)
         message = ipod_sync.eject(self.ipod)
         self.say(message)
         self.status_label.setText(message)
@@ -1636,6 +1894,7 @@ class MainWindow(QMainWindow):
             self.stop_action.setEnabled(False)
 
     def _set_busy(self, text: str) -> None:
+        self.lcd.hide_now_playing()
         self.status_label.setText(text)
         self.lcd.secondary.setText("")
         self.progress.setRange(0, 0)
@@ -1696,6 +1955,7 @@ class MainWindow(QMainWindow):
             self.job.wait(15000)
         self._ipod_timer.stop()
         self._refresh_timer.stop()
+        self.player.stop()
         self.library.close()
         event.accept()
 

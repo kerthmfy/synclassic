@@ -39,6 +39,15 @@ class SongsModel(QAbstractTableModel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.songs: list[Song] = []
+        self.playing_id: int | None = None
+        self._speaker = None
+
+    def set_playing(self, song_id: int | None) -> None:
+        if song_id == self.playing_id:
+            return
+        self.playing_id = song_id
+        if self.songs:
+            self.dataChanged.emit(self.index(0, 0), self.index(len(self.songs) - 1, 0))
 
     def set_songs(self, songs: list[Song]) -> None:
         self.beginResetModel()
@@ -92,6 +101,12 @@ class SongsModel(QAbstractTableModel):
             ][column]
         if role == SONG_ID_ROLE:
             return song.id
+        if role == Qt.ItemDataRole.DecorationRole and column == 0 and song.id == self.playing_id:
+            if self._speaker is None:
+                from synclassic.gui.widgets import speaker_icon
+
+                self._speaker = speaker_icon()
+            return self._speaker
         if role == Qt.ItemDataRole.TextAlignmentRole and column in (1, 5):
             return int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         if role == Qt.ItemDataRole.ForegroundRole and column == 6:

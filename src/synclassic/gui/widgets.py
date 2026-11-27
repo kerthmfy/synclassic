@@ -130,6 +130,31 @@ class GlossyButton(QAbstractButton):
                 painter.drawArc(arc, 200 * 16, 140 * 16)
                 self._arrow_head(painter, c, s, 20, color)
                 self._arrow_head(painter, c, s, 200, color)
+        elif self.symbol in ("play", "pause", "prev", "next"):
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(color)
+
+            def triangle(x: float, direction: int, size: float) -> None:
+                path = QPainterPath()
+                path.moveTo(x, c.y() - size)
+                path.lineTo(x + direction * size * 1.5, c.y())
+                path.lineTo(x, c.y() + size)
+                path.closeSubpath()
+                painter.drawPath(path)
+
+            if self.symbol == "play":
+                triangle(c.x() - s * 0.55, 1, s * 0.95)
+            elif self.symbol == "pause":
+                for x in (c.x() - s * 0.6, c.x() + s * 0.2):
+                    painter.drawRoundedRect(QRectF(x, c.y() - s * 0.85, s * 0.4, s * 1.7), 1, 1)
+            else:
+                direction = 1 if self.symbol == "next" else -1
+                size = s * 0.62
+                start = c.x() - direction * size * 1.35
+                triangle(start, direction, size)
+                triangle(start + direction * size * 1.3, direction, size)
+                bar_x = start + direction * size * 2.75 - (size * 0.3 if direction < 0 else 0)
+                painter.drawRect(QRectF(bar_x if direction > 0 else start - size * 0.35, c.y() - size, size * 0.3, 2 * size))
         elif self.symbol == "gear":
             painter.drawEllipse(c, s * 0.45, s * 0.45)
             for n in range(8):
@@ -202,6 +227,57 @@ class LcdDisplay(QWidget):
         layout.addWidget(self.primary)
         layout.addWidget(self.secondary)
         layout.addWidget(self.bar)
+
+        # Now playing: elapsed | position (drag to seek) | remaining.
+        from PySide6.QtWidgets import QHBoxLayout, QSlider
+
+        self.seek_row = QWidget()
+        self.seek_row.setStyleSheet("background: transparent;")
+        row = QHBoxLayout(self.seek_row)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+        self.elapsed = QLabel("0:00")
+        self.remaining = QLabel("-0:00")
+        for label in (self.elapsed, self.remaining):
+            label.setFont(small)
+            label.setStyleSheet(f"color: {theme.LCD_TEXT}; background: transparent;")
+            label.setFixedWidth(42)
+        self.remaining.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.seek = QSlider(Qt.Orientation.Horizontal)
+        self.seek.setFixedHeight(12)
+        self.seek.setStyleSheet(
+            "QSlider::groove:horizontal { height: 5px; border: 1px solid #5e5e5e; border-radius: 3px;"
+            " background: rgba(255,255,255,120); }"
+            "QSlider::sub-page:horizontal { border-radius: 3px; background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
+            " stop:0 #6b6b6b, stop:1 #2e2e2e); }"
+            "QSlider::handle:horizontal { width: 9px; height: 9px; margin: -3px 0; border-radius: 4px;"
+            " border: 1px solid #3a3a3a; background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #ffffff, stop:1 #9a9a9a); }"
+        )
+        row.addWidget(self.elapsed)
+        row.addWidget(self.seek, 1)
+        row.addWidget(self.remaining)
+        self.seek_row.hide()
+        layout.addWidget(self.seek_row)
+
+    def show_now_playing(self, title: str, line: str) -> None:
+        self.primary.setText(title)
+        self.secondary.setText(line)
+        self.bar.hide()
+        self.seek_row.show()
+
+    def hide_now_playing(self) -> None:
+        self.seek_row.hide()
+
+    def set_times(self, position_ms: int, duration_ms: int) -> None:
+        def fmt(ms: int) -> str:
+            seconds = max(0, round(ms / 1000))
+            return f"{seconds // 60}:{seconds % 60:02d}"
+
+        self.elapsed.setText(fmt(position_ms))
+        self.remaining.setText("-" + fmt(max(0, duration_ms - position_ms)))
+        if not self.seek.isSliderDown():
+            self.seek.setRange(0, max(1, duration_ms))
+            self.seek.setValue(position_ms)
 
     def paintEvent(self, event):  # noqa: N802
         painter = QPainter(self)
@@ -642,3 +718,98 @@ class SourceList(QTreeWidget):
         event.setDropAction(Qt.DropAction.CopyAction)
         event.accept()
         self.songs_dropped.emit(item.data(0, Qt.ItemDataRole.UserRole), ids)
+
+
+def speaker_pixmap(waves: int, size: int = 14, color: str = "#3a3a3a"):
+    """A small speaker icon (0-2 sound waves), for the volume slider and the playing song."""
+    from PySide6.QtGui import QPixmap
+
+    pixmap = QPixmap(size * 2, size * 2)
+    pixmap.setDevicePixelRatio(2)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(color))
+    s = float(size)
+    body = QPainterPath()
+    body.moveTo(s * 0.08, s * 0.38)
+    body.lineTo(s * 0.28, s * 0.38)
+    body.lineTo(s * 0.52, s * 0.16)
+    body.lineTo(s * 0.52, s * 0.84)
+    body.lineTo(s * 0.28, s * 0.62)
+    body.lineTo(s * 0.08, s * 0.62)
+    body.closeSubpath()
+    painter.drawPath(body)
+    painter.setPen(QPen(QColor(color), max(1.0, s * 0.08), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    for n in range(waves):
+        r = s * (0.18 + 0.16 * n)
+        painter.drawArc(QRectF(s * 0.52 - r, s * 0.5 - r, 2 * r, 2 * r), -45 * 16, 90 * 16)
+    painter.end()
+    return pixmap
+
+
+def speaker_icon():
+    """Speaker for the playing song: blue normally, white on a selected row."""
+    from PySide6.QtGui import QIcon
+
+    icon = QIcon()
+    icon.addPixmap(speaker_pixmap(2, 12, "#2f66c1"), QIcon.Mode.Normal)
+    icon.addPixmap(speaker_pixmap(2, 12, "#ffffff"), QIcon.Mode.Selected)
+    return icon
+
+
+def control_pixmap(kind: str, size: int = 16, color: str = "#2e2e2e"):
+    """Drawn shuffle / repeat / repeat-one icons for the bottom bar."""
+    from PySide6.QtGui import QPixmap
+
+    pixmap = QPixmap(size * 2, size * 2)
+    pixmap.setDevicePixelRatio(2)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    s = float(size)
+    pen = QPen(QColor(color), s * 0.11, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+
+    def head(x: float, y: float, direction: int) -> None:
+        path = QPainterPath()
+        path.moveTo(x, y - s * 0.16)
+        path.lineTo(x + direction * s * 0.2, y)
+        path.lineTo(x, y + s * 0.16)
+        path.closeSubpath()
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(color))
+        painter.drawPath(path)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+    painter.setPen(pen)
+    if kind == "shuffle":
+        for y0, y1 in ((0.3, 0.7), (0.7, 0.3)):
+            path = QPainterPath()
+            path.moveTo(s * 0.1, s * y0)
+            path.cubicTo(s * 0.45, s * y0, s * 0.45, s * y1, s * 0.72, s * y1)
+            painter.drawPath(path)
+            head(s * 0.72, s * y1, 1)
+    else:
+        rect = QRectF(s * 0.14, s * 0.28, s * 0.72, s * 0.44)
+        path = QPainterPath()
+        path.moveTo(rect.left() + s * 0.2, rect.top())
+        path.lineTo(rect.right() - s * 0.12, rect.top())
+        path.quadTo(rect.right(), rect.top(), rect.right(), rect.top() + s * 0.12)
+        path.lineTo(rect.right(), rect.bottom() - s * 0.12)
+        path.quadTo(rect.right(), rect.bottom(), rect.right() - s * 0.12, rect.bottom())
+        path.lineTo(rect.left() + s * 0.12, rect.bottom())
+        path.quadTo(rect.left(), rect.bottom(), rect.left(), rect.bottom() - s * 0.12)
+        path.lineTo(rect.left(), rect.top() + s * 0.12)
+        painter.drawPath(path)
+        head(rect.left() + s * 0.2, rect.top(), 1)
+        if kind == "repeat_one":
+            font = QFont()
+            font.setPixelSize(int(s * 0.42))
+            font.setBold(True)
+            painter.setFont(font)
+            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "1")
+    painter.end()
+    return pixmap
