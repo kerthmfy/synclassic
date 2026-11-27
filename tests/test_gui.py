@@ -338,3 +338,43 @@ def test_maintenance_from_the_window(app, monkeypatch, tmp_path):
     settle()
     assert database.read_bytes() == original
     window.close()
+
+
+def test_delete_a_synced_playlist_from_the_window(app, monkeypatch, tmp_path):
+    """The case from the real iPod: a Synclassic playlist is deleted from the iPod (and from Synclassic)."""
+    from PySide6.QtWidgets import QMessageBox
+
+    from synclassic.gui.main_window import MainWindow
+    from synclassic.ipod import itunesdb, manage
+    from synclassic.ipod import sync as ipod_sync
+    from synclassic.sources import SourceSpec
+    from tests.test_ipod_read import fake_ipod, load
+
+    root = fake_ipod(tmp_path, load("captured-album-index-36.b64"))
+    monkeypatch.setenv("SYNCLASSIC_IPOD", str(root))
+    asked = []
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: asked.append(a[2]) or QMessageBox.StandardButton.Yes))
+    from synclassic.ipod.device import ipod_at
+
+    ipod = ipod_at(root)
+    songs = itunesdb.songs(itunesdb.parse(ipod.database_path.read_bytes()))
+    pid = manage.create_playlist(ipod, "OUT OF MY MIND", [songs[0].id])
+    library = Library(config.app_dir() / "library.db")
+    synced = library.add_playlist("OUT OF MY MIND", SourceSpec("spotify", "https://open.spotify.com/playlist/37i9dQZF1DX4o1oenSJRJd"))
+    state = ipod_sync.load_state(ipod)
+    state["playlists"][ipod_sync.playlist_key(synced)] = {"id": f"{pid:016x}", "name": "OUT OF MY MIND"}
+    ipod_sync.save_state(ipod, state)
+    library.close()
+
+    window = MainWindow()
+    assert wait_until(app, lambda: window.ipod_contents is not None)
+    playlist = window._ipod_playlist(pid)
+    assert playlist.synclassic and not window._editable_playlist(playlist)
+    window._delete_ipod_playlist(playlist)
+    assert wait_until(app, lambda: window.job is None, 20)
+    wait_until(app, lambda: False, 0.3)
+    assert "Remove it from Synclassic" in asked[0]
+    names = [p.name for p in itunesdb.playlists(itunesdb.parse(ipod.database_path.read_bytes()))]
+    assert "OUT OF MY MIND" not in names
+    assert [p.name for p in window.library.playlists()] == []
+    window.close()

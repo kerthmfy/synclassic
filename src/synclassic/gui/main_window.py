@@ -849,9 +849,9 @@ class MainWindow(QMainWindow):
             rename = menu.addAction("Rename…")
             delete = menu.addAction("Delete Playlist…")
             rename.setEnabled(editable)
-            delete.setEnabled(editable)
+            delete.setEnabled(editable or playlist.synclassic)  # smart playlists: neither
             if not editable:
-                note = menu.addAction("Smart playlist" if playlist.smart else "Kept in sync by Synclassic")
+                note = menu.addAction("Smart playlist (read-only)" if playlist.smart else "Synced from Spotify by Synclassic")
                 note.setEnabled(False)
             menu.addSeparator()
             export = menu.addAction("Export as .m3u8…")
@@ -868,16 +868,39 @@ class MainWindow(QMainWindow):
                 self._ipod_edit("Renaming…", lambda ipod, backup: manage.rename_playlist(ipod, playlist.id, name.strip(), backup),
                                 done_message=f"Renamed to “{name.strip()}”")
         elif chosen == delete and playlist is not None:
-            answer = QMessageBox.question(self, "Delete Playlist",
-                                          f"Delete the playlist “{playlist.name}” from your iPod? Its songs stay on the iPod.")
-            if answer == QMessageBox.StandardButton.Yes:
-                self._ipod_edit("Deleting playlist…", lambda ipod, backup: manage.delete_playlist(ipod, playlist.id, backup),
-                                select=lambda _: ("ipod", "music"), done_message=f"Deleted “{playlist.name}”")
+            self._delete_ipod_playlist(playlist)
         elif chosen == export and playlist is not None:
             target, _ = QFileDialog.getSaveFileName(self, "Export playlist", f"{playlist.name}.m3u8", "Playlists (*.m3u8)")
             if target:
                 count = manage.export_m3u(self.ipod, playlist.id, pathlib.Path(target))
                 self.status_label.setText(f"Exported {count} songs to {pathlib.Path(target).name}")
+
+    def _delete_ipod_playlist(self, playlist) -> None:
+        from synclassic.ipod import manage
+        from synclassic.ipod import sync as ipod_sync
+
+        library_playlist = None
+        if playlist.synclassic and self.ipod is not None:
+            # Is it still one of Synclassic's playlists? Then the next sync would bring it back.
+            keys = {k for k, v in ipod_sync.load_state(self.ipod)["playlists"].items() if int(v["id"], 16) == playlist.id}
+            library_playlist = next((p for p in self.library.playlists() if ipod_sync.playlist_key(p) in keys), None)
+        if library_playlist is not None:
+            question = (f"“{playlist.name}” is synced from Spotify by Synclassic. Remove it from Synclassic and delete "
+                        "it from your iPod? (Otherwise the next sync would put it back.) Its songs stay on your Mac; "
+                        "songs only Synclassic needed for it are removed from the iPod at the next sync.")
+        else:
+            question = f"Delete the playlist “{playlist.name}” from your iPod? Its songs stay on the iPod."
+        if QMessageBox.question(self, "Delete Playlist", question) != QMessageBox.StandardButton.Yes:
+            return
+        if library_playlist is not None:
+            self.library.remove_playlist(library_playlist)
+            finalize(self.library)
+        self._ipod_edit(
+            "Deleting playlist…",
+            lambda ipod, backup: manage.delete_playlist(ipod, playlist.id, backup, synced_too=True),
+            select=lambda _: ("ipod", "music"),
+            done_message=f"Deleted “{playlist.name}”",
+        )
 
     def _ipod_song_menu(self, table, position) -> None:
         from synclassic.ipod import manage

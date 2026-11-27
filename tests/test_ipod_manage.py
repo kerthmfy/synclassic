@@ -247,3 +247,16 @@ def test_restoring_the_oldest_of_ten_backups(ipod, monkeypatch):
     manage.restore_backup(ipod, oldest.folder)  # the backup rotation removes this very folder
     assert ipod.database_path.read_bytes() == expected
     assert not oldest.folder.exists() and len(ipod_sync.list_backups(ipod)) == 10
+
+
+def test_deleting_a_synced_playlist_on_request(ipod):
+    songs = itunesdb.songs(db(ipod))
+    pid = manage.create_playlist(ipod, "OUT OF MY MIND", [songs[0].id])
+    state = sync.load_state(ipod)
+    state["playlists"]["spotify|https://open.spotify.com/playlist/x|"] = {"id": f"{pid:016x}", "name": "OUT OF MY MIND"}
+    sync.save_state(ipod, state)
+    with pytest.raises(manage.ManageError):
+        manage.delete_playlist(ipod, pid)  # protected by default
+    manage.delete_playlist(ipod, pid, synced_too=True)
+    assert titles(ipod, "OUT OF MY MIND") is None
+    assert sync.load_state(ipod)["playlists"] == {}  # forgotten: a sync won't try to update it

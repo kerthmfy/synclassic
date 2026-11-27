@@ -62,6 +62,7 @@ class EditSession:
         self.copied: list[pathlib.Path] = []
         self.art_jobs: list[tuple[int, bytes]] = []
         self.deleted_dbids: set[int] = set()
+        self.state_changed = False
         self._merge_device_changes()
         self.editor = Editor(self.db)
 
@@ -122,9 +123,18 @@ class EditSession:
         self.editable(playlist_id)
         self.editor.rename_playlist(playlist_id, name.strip())
 
-    def delete_playlist(self, playlist_id: int) -> None:
-        self.editable(playlist_id)
+    def delete_playlist(self, playlist_id: int, synced_too: bool = False) -> None:
+        """Delete a playlist. `synced_too` also allows one Synclassic syncs from Spotify (it is then
+        forgotten, so a sync won't touch it again unless it's still in Synclassic's playlists)."""
+        view = self.playlist(playlist_id)
+        if not (synced_too and not view.is_smart and playlist_id in self.managed_ids()):
+            self.editable(playlist_id)
         self.editor.delete_playlist(playlist_id)
+        before = len(self.state["playlists"])
+        self.state["playlists"] = {
+            key: value for key, value in self.state["playlists"].items() if int(value["id"], 16) != playlist_id
+        }
+        self.state_changed = self.state_changed or len(self.state["playlists"]) != before
 
     def delete_songs(self, song_ids: set[int]) -> int:
         songs = self.songs()
@@ -217,6 +227,8 @@ class EditSession:
             self.state["tracks"] = {
                 k: v for k, v in self.state["tracks"].items() if int(v["dbid"], 16) not in self.deleted_dbids
             }
+            self.state_changed = True
+        if self.state_changed:
             save_state(self.ipod, self.state)
         if hasattr(os, "sync"):
             os.sync()
@@ -276,8 +288,8 @@ def rename_playlist(ipod: IPod, playlist_id: int, name: str, make_backup: bool =
     _run(ipod, make_backup, lambda s: s.rename(playlist_id, name))
 
 
-def delete_playlist(ipod: IPod, playlist_id: int, make_backup: bool = True) -> None:
-    _run(ipod, make_backup, lambda s: s.delete_playlist(playlist_id))
+def delete_playlist(ipod: IPod, playlist_id: int, make_backup: bool = True, synced_too: bool = False) -> None:
+    _run(ipod, make_backup, lambda s: s.delete_playlist(playlist_id, synced_too))
 
 
 def set_playlist_songs(ipod: IPod, playlist_id: int, song_ids: list[int], make_backup: bool = True) -> None:

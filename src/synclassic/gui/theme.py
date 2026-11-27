@@ -106,6 +106,8 @@ QMenu::item {{ padding: 3px 22px; }}
 QMenu::item:selected {{
     color: #fff; background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {SELECT_TOP}, stop:1 {SELECT_BOTTOM});
 }}
+QMenu::item:disabled {{ color: #a3a3a3; }}
+QMenu::item:disabled:selected {{ color: #a3a3a3; background: transparent; }}
 QMenu::separator {{ height: 1px; background: #d0d0d0; margin: 4px 0; }}
 
 /* ---- lists and tables ---- */
