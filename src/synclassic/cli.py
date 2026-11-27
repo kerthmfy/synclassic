@@ -586,6 +586,24 @@ def cmd_get(args) -> int:
     return run_update(library, [playlist], retry_failed=False, refresh=False)
 
 
+def cmd_genius(args) -> int:
+    from synclassic.sources import genius
+
+    text = " ".join(args.song)
+    if " - " not in text:
+        say('Usage: synclassic genius "Artist - Song"')
+        return 1
+    artist, title = (part.strip() for part in text.split(" - ", 1))
+    library = open_library()
+    try:
+        playlist = genius.make(library, artist, title)
+    except genius.GeniusError as error:
+        say(str(error))
+        return 1
+    say(f"Made “{playlist.name}” ({len(library.playlist_track_ids(playlist))} songs).")
+    return run_update(library, [playlist], retry_failed=False, refresh=False)
+
+
 def cmd_lyrics(args) -> int:
     from synclassic.ipod import lyrics_sync
     from synclassic.ipod.device import find_ipods
@@ -904,6 +922,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("kind", choices=["song", "album"])
     p.add_argument("id", type=int)
     p.set_defaults(func=cmd_get)
+
+    p = sub.add_parser("genius", help='make a Genius playlist from a song: genius "Artist - Song"')
+    p.add_argument("song", nargs="+")
+    p.set_defaults(func=cmd_genius)
 
     p = sub.add_parser("lyrics", help="put lyrics inside songs that don't have them (this Mac and the iPod)")
     p.add_argument("--mac-only", action="store_true", help="leave the iPod alone")

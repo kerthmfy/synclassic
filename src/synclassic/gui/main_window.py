@@ -1126,6 +1126,8 @@ class MainWindow(QMainWindow):
             return
         menu = QMenu(self)
         info = menu.addAction("Get Info…")
+        genius = menu.addAction("Make Genius Playlist")
+        genius.setEnabled(len(ids) == 1)
         menu.addSeparator()
         add_menu = menu.addMenu("Add to Playlist")
         new_from = add_menu.addAction("New Playlist from Selection…")
@@ -1151,6 +1153,10 @@ class MainWindow(QMainWindow):
             return
         if chosen == info:
             self.get_info(table)
+        elif chosen == genius:
+            song = self.ipod_contents.songs.get(ids[0])
+            if song:
+                self.make_genius(song.artist, song.title)
         elif chosen == new_from:
             self.new_ipod_playlist(ids)
         elif chosen in targets:
@@ -1994,6 +2000,34 @@ class MainWindow(QMainWindow):
         playlist = store.get_album(self.library, album, songs)
         self._download_collection(playlist, f"the album “{album.title}”")
 
+    def make_genius(self, artist: str, title: str) -> None:
+        from synclassic.sources import genius
+
+        if self.job is not None:
+            QMessageBox.information(self, "Busy", "Wait for the current task to finish first.")
+            return
+        path = self.library_path
+        self.status_label.setText(f"Asking Last.fm for songs like “{title}”…")
+
+        def work(task):
+            library = Library(path)
+            try:
+                return genius.make(library, artist, title).id
+            finally:
+                library.close()
+
+        def done(playlist_id):
+            self._pending_key = playlist_id
+            finalize(self.library)
+            self.refresh()
+            self.start_update([playlist_id], refresh_sources=False)
+
+        def failed(error):
+            self.status_label.setText("Synclassic")
+            QMessageBox.information(self, "Genius", str(error))
+
+        run_in_background(self, work, done, failed)
+
     def show_rewind(self) -> None:
         from synclassic.gui.rewind import RewindDialog
 
@@ -2302,6 +2336,9 @@ class MainWindow(QMainWindow):
         pick = menu.addAction("Choose version…")
         pick.setEnabled(len(ids) == 1)
         retry = menu.addAction("Search again automatically")
+        genius = menu.addAction("Make Genius Playlist")
+        genius.setEnabled(len(ids) == 1)
+        genius.setToolTip("A playlist of 25 songs that go well with this one (from Last.fm)")
         own = menu.addAction("Use My Own File…")
         own.setEnabled(len(ids) == 1)
         own.setToolTip("For a song YouTube doesn't have: use an audio file from your Mac")
@@ -2319,6 +2356,8 @@ class MainWindow(QMainWindow):
             self.start_update(self._playlist_ids_for_view(), refresh_sources=False)
         elif chosen == own and item is not None:
             self.use_own_file(item)
+        elif chosen == genius and item is not None:
+            self.make_genius(item.track.artist, item.track.title)
         elif chosen == reveal and item and item.file_path:
             reveal_in_finder(pathlib.Path(item.file_path))
 

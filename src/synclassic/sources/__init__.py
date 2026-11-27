@@ -32,6 +32,9 @@ class SourceSpec:
     def describe(self) -> str:
         if self.kind == "liked":
             return "Spotify Liked Songs"
+        if self.kind == "genius":
+            artist, title = self.ref.split("lastfm:similar:", 1)[1].split("|", 1)
+            return f"Genius: songs like {artist} - {title} (Last.fm)"
         if self.kind == "store-album":
             return "Album from Find Music"
         if self.kind == "store-songs":
@@ -80,6 +83,13 @@ def read_source(spec: SourceSpec, client: SpotifyClient | None, full_reader: Ful
             if not ref:
                 raise SourceError(f"Bad Spotify link: {spec.ref}")
             return _read_spotify(ref, client, full_reader)
+        if spec.kind == "genius":
+            from synclassic.sources import genius
+
+            try:
+                return genius.build(*genius.seed_of(spec.ref))
+            except genius.GeniusError as error:
+                raise SourceError(str(error)) from error
         if spec.kind == "store-album":
             from synclassic.config import load_settings
             from synclassic.sources import store

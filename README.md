@@ -109,6 +109,13 @@ under Albums, Artists and Songs (they aren't made into iPod playlists). The cata
 is a setting (`synclassic config store_country PH`). Terminal:
 `synclassic find albums daft punk discovery`, then `synclassic get album <number>`.
 
+## Genius playlists
+
+Right-click a song (in a playlist or on the iPod) → **Make Genius Playlist**: the song plus 24
+that go well with it, from what Last.fm's listeners play together (at most 3 per artist). It
+downloads and goes on the iPod like any playlist, and Update refreshes it. Terminal:
+`synclassic genius "Daft Punk - One More Time"`.
+
 ## Long playlists without logging in
 
 Spotify only shares the first 100 songs of a playlist with apps that aren't logged in. For
