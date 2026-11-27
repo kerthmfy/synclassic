@@ -60,6 +60,10 @@ class Settings:
     skip_on_ipod: bool = False
     # Run Update & Sync by itself when the iPod is plugged in (like iTunes did).
     sync_on_connect: bool = False
+    # Last.fm, for songs played in the app: show them as "Now Playing" and scrobble them right away.
+    lastfm_live: bool = True
+    # A music note in the macOS menu bar with the current song and controls.
+    menu_bar_player: bool = True
 
     @property
     def music_path(self) -> pathlib.Path:

@@ -138,6 +138,9 @@ class SettingsDialog(QDialog):
         self.background.setCurrentIndex(max(0, self.background.findData(current)))
         self.background.setToolTip("Downloads new songs and podcast episodes even when Synclassic is closed (macOS).")
         form.addRow("Check for new songs in the background", self.background)
+        self.menu_bar = QCheckBox("Show a music note in the menu bar with the current song and controls")
+        self.menu_bar.setChecked(self.settings.menu_bar_player)
+        form.addRow("", self.menu_bar)
         self.full_reader = QCheckBox("Read playlists over 100 songs in full from Spotify's web page")
         self.full_reader.setChecked(self.settings.full_playlist_reader)
         self.full_reader.setToolTip(
@@ -230,6 +233,9 @@ class SettingsDialog(QDialog):
         self.scrobble_after = QCheckBox("Scrobble automatically after each sync")
         self.scrobble_after.setChecked(self.settings.scrobble_after_sync)
         lbox.addWidget(self.scrobble_after)
+        self.lastfm_live = QCheckBox("Songs played in Synclassic: show them as “Now Playing” and scrobble them right away")
+        self.lastfm_live.setChecked(self.settings.lastfm_live)
+        lbox.addWidget(self.lastfm_live)
         self.tabs.addTab(lastfm_box, "Last.fm")
         self._show_lastfm()
 
@@ -351,6 +357,8 @@ class SettingsDialog(QDialog):
         self._apply_background()
         self.settings.folder_layout = self.layout_choice.currentData()
         self.settings.scrobble_after_sync = self.scrobble_after.isChecked()
+        self.settings.lastfm_live = self.lastfm_live.isChecked()
+        self.settings.menu_bar_player = self.menu_bar.isChecked()
         from synclassic import lastfm
 
         credentials = lastfm.load_credentials()

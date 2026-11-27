@@ -223,6 +223,11 @@ What a sync does:
 - Removes songs **Synclassic added** once no playlist uses them. Music you put on the iPod
   some other way is never deleted, and your other playlists are left as they are.
 
+**Mini Player and menu bar**: Controls → **Mini Player** (⇧⌘M) is a small always-on-top window
+with the controls and display; a music note in the menu bar shows the current song with Play,
+Next and Previous (turn off in Settings). With Last.fm connected, songs you play in Synclassic
+show as "Now Playing" on your profile and are scrobbled right away (Settings → Last.fm).
+
 **Cover Flow**: the iPod's Albums page shows its covers as a grid or in Cover Flow (click,
 drag, scroll or use the arrow keys; the album's songs show underneath).
 

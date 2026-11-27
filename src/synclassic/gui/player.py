@@ -45,6 +45,7 @@ class Player(QObject):
     playing_changed = Signal(bool)
     error = Signal(str)
     finished_item = Signal(object)  # PlayItem played to the end
+    counted = Signal(object)  # PlayItem heard long enough to count as a play (queued for Last.fm)
 
     REPEAT_MODES = ("off", "all", "one")
 
@@ -212,8 +213,9 @@ class Player(QObject):
             from synclassic import scrobble
 
             try:
-                scrobble.add_play(item.artist, item.title, item.album, item.album_artist,
-                                  round((self.backend.duration() or item.length_ms) / 1000), int(self._started_at))
+                if scrobble.add_play(item.artist, item.title, item.album, item.album_artist,
+                                     round((self.backend.duration() or item.length_ms) / 1000), int(self._started_at)):
+                    self.counted.emit(item)
             except OSError:
                 pass
 

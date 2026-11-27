@@ -119,6 +119,10 @@ class MainWindow(QMainWindow):
         self.player.playing_changed.connect(self._playing_changed)
         self.player.error.connect(self.say)
         self.player.finished_item.connect(self._finished_playing)
+        self.player.track_changed.connect(self._lastfm_now_playing)
+        self.player.counted.connect(lambda item: self._lastfm_send_plays())
+        self.mini_player = None
+        self.menu_bar_player = None
         self._downloading_episodes: set[int] = set()
         self._cover_cache: dict[int, tuple[float, object]] = {}
 
@@ -146,6 +150,7 @@ class MainWindow(QMainWindow):
         self._detect_ipod()
 
         self.refresh()
+        self._apply_menu_bar_player()
 
     # --- actions and menus ---------------------------------------------------------------------
 
@@ -204,6 +209,7 @@ class MainWindow(QMainWindow):
         self.shuffle_action = action("Shuffle", lambda: self._set_shuffle(self.shuffle_action.isChecked()))
         self.shuffle_action.setCheckable(True)
         self.repeat_action = action("Repeat: Off", lambda: self._cycle_repeat())
+        self.mini_action = action("Mini Player", lambda: self.show_mini_player(), QKeySequence("Ctrl+Shift+M"))
         self.log_action = action("Show Activity", self._toggle_log, QKeySequence("Ctrl+L"))
         self.log_action.setCheckable(True)
 
@@ -221,7 +227,8 @@ class MainWindow(QMainWindow):
                     self.info_fill_action, self.soundcheck_action, self.ipod_action, None, self.eject_action):
             ipod_menu.addSeparator() if act is None else ipod_menu.addAction(act)
         controls = bar.addMenu("Controls")
-        for act in (self.play_action, self.next_action, self.previous_action, None, self.shuffle_action, self.repeat_action):
+        for act in (self.play_action, self.next_action, self.previous_action, None, self.shuffle_action, self.repeat_action,
+                    None, self.mini_action):
             controls.addSeparator() if act is None else controls.addAction(act)
         view_menu = bar.addMenu("View")
         view_menu.addAction(self.log_action)
@@ -1899,6 +1906,62 @@ class MainWindow(QMainWindow):
             items.append(item)
         self.player.play_list(items, start)
 
+    # --- menu bar, mini player, Last.fm while playing here ------------------------------------------
+
+    def _apply_menu_bar_player(self) -> None:
+        from synclassic.gui.mini_player import MenuBarPlayer
+
+        wanted = load_settings().menu_bar_player
+        if wanted and self.menu_bar_player is None:
+            self.menu_bar_player = MenuBarPlayer(self)
+            self.menu_bar_player.update(self.player.current)
+            self.menu_bar_player.show()
+        elif not wanted and self.menu_bar_player is not None:
+            self.menu_bar_player.hide()
+            self.menu_bar_player = None
+
+    def show_mini_player(self) -> None:
+        from synclassic.gui.mini_player import MiniPlayer
+
+        if self.mini_player is None:
+            self.mini_player = MiniPlayer(self)
+        self.mini_player.show()
+        self.mini_player.raise_()
+
+    def _lastfm_live(self) -> bool:
+        from synclassic import lastfm
+
+        return load_settings().lastfm_live and bool(lastfm.connected_user())
+
+    def _lastfm_now_playing(self, item) -> None:
+        if item is None or item.podcast or not item.artist or not self._lastfm_live():
+            return
+        from synclassic import lastfm
+
+        def work(task):
+            lastfm.Client.from_saved().now_playing(item.artist, item.title, item.album, item.album_artist,
+                                                   round(item.length_ms / 1000))
+
+        run_in_background(self, work, lambda result: None, lambda error: self.say(f"Last.fm: {error}"))
+
+    def _lastfm_send_plays(self) -> None:
+        """A song played here counted: send it (and anything waiting) to Last.fm now."""
+        if not self._lastfm_live() or getattr(self, "_lastfm_sending", False):
+            return
+        from synclassic import scrobble
+
+        self._lastfm_sending = True
+
+        def done(result):
+            self._lastfm_sending = False
+            self._update_scrobble_count()
+
+        def failed(error):
+            self._lastfm_sending = False
+            self.say(f"Last.fm: {error} (the plays wait for next time)")
+
+        run_in_background(self, lambda task: scrobble.submit(), done, failed)
+
     def _finished_playing(self, item) -> None:
         if item.key and item.key[0] == "pod":
             self._podcasts().set_played(item.key[1], True)
@@ -2405,6 +2468,7 @@ class MainWindow(QMainWindow):
     def open_settings(self) -> None:
         before = load_settings().folder_layout
         SettingsDialog(self).exec()
+        self._apply_menu_bar_player()
         if load_settings().folder_layout != before:
             if self.job is not None:
                 self.say("The new folder layout will be applied after the current update.")
@@ -2602,6 +2666,10 @@ class MainWindow(QMainWindow):
         self._ipod_timer.stop()
         self._refresh_timer.stop()
         self.player.stop()
+        if self.mini_player is not None:
+            self.mini_player.close()
+        if self.menu_bar_player is not None:
+            self.menu_bar_player.hide()
         self.library.close()
         event.accept()
 

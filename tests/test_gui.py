@@ -563,3 +563,22 @@ def test_cover_flow_moves_and_shows_the_album(app):
     page.filter("Album 2")
     assert page.flow.view.visible == [2]
     page.grab()  # draws without errors
+
+
+def test_mini_player_and_menu_bar_follow_playback(app, monkeypatch):
+    import pathlib
+
+    from synclassic.gui import player as player_module
+    from synclassic.gui.main_window import MainWindow
+    from synclassic.gui.player import PlayItem
+    from tests.test_player import FakeBackend
+
+    monkeypatch.setattr(player_module.Player, "_make_backend", lambda self: FakeBackend())
+    window = MainWindow()
+    assert window.menu_bar_player is not None  # on by default
+    window.show_mini_player()
+    window.player.play_list([PlayItem(pathlib.Path("/x.m4a"), "Song", "Artist", "Album", length_ms=200_000, key=("lib", 1))])
+    assert window.mini_player.lcd.primary.text() == "Song"
+    assert window.menu_bar_player.now.text() == "Song" and "Artist" in window.menu_bar_player.line.text()
+    window.close()
+    assert not window.mini_player.isVisible()

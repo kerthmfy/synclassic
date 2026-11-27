@@ -186,3 +186,19 @@ def test_own_key_overrides_the_builtin_one(monkeypatch):
     monkeypatch.setattr(lastfm_app, "SHARED_SECRET", "builtin")
     lastfm.save_credentials({"api_key": KEY, "secret": SECRET})
     assert lastfm.app_key() == (KEY, SECRET)
+
+
+def test_now_playing_is_sent_signed():
+    sent = []
+
+    class Server(FakeLastfm):
+        def _answer(self, params):
+            if params["method"] == "track.updateNowPlaying":
+                self._check(dict(params))
+                sent.append(params)
+                return SimpleNamespace(status_code=200, json=lambda: {"nowplaying": {}})
+            return super()._answer(params)
+
+    client = lastfm.Client(KEY, SECRET, "SESSION", session=Server())
+    client.now_playing("Artist", "Song", "Album", "", 200)
+    assert sent[0]["track"] == "Song" and sent[0]["sk"] == "SESSION" and sent[0]["duration"] == "200"

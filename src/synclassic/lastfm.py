@@ -154,6 +154,19 @@ class Client:
 
     # --- scrobbling ---------------------------------------------------------------------------
 
+    def now_playing(self, artist: str, track: str, album: str = "", album_artist: str = "", duration_s: int = 0) -> None:
+        """Show a song as "scrobbling now" on your Last.fm profile."""
+        if not self.session_key:
+            raise LastfmError("Connect to Last.fm first (Settings).")
+        params = {"artist": artist, "track": track}
+        if album:
+            params["album"] = album
+        if album_artist:
+            params["albumArtist"] = album_artist
+        if duration_s:
+            params["duration"] = str(duration_s)
+        self.call("track.updateNowPlaying", params, post=True)
+
     def scrobble(self, plays: list[dict]) -> tuple[int, list[tuple[dict, str]]]:
         """Send plays (max 50). Returns (accepted, [(play, reason it was ignored)])."""
         if not self.session_key:
