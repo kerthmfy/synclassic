@@ -11,5 +11,5 @@ empty), then paste the "API key" and "Shared secret" below.
 People can still use their own API account instead (Settings → Last.fm → Advanced).
 """
 
-API_KEY = ""
-SHARED_SECRET = ""
+API_KEY = "afa0c0bc29f96936079bdef034b5053e"
+SHARED_SECRET = "1a637c636304a21e7939291b2f38d5c5"
