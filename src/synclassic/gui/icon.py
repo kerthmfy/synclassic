@@ -15,6 +15,28 @@ def render_icon(size: int) -> QImage:
     image = QImage(size, size, QImage.Format.Format_ARGB32_Premultiplied)
     image.fill(Qt.GlobalColor.transparent)
     painter = QPainter(image)
+    paint_icon(painter, size)
+    painter.end()
+    return image
+
+
+def save_svg(path, size: int = 512) -> None:
+    """The icon as a vector SVG (e.g. for the README or a website)."""
+    from PySide6.QtCore import QRect, QSize
+    from PySide6.QtSvg import QSvgGenerator
+
+    generator = QSvgGenerator()
+    generator.setFileName(str(path))
+    generator.setSize(QSize(size, size))
+    generator.setViewBox(QRect(0, 0, size, size))
+    generator.setTitle("Synclassic")
+    generator.setDescription("The Synclassic app icon")
+    painter = QPainter(generator)
+    paint_icon(painter, size)
+    painter.end()
+
+
+def paint_icon(painter: QPainter, size: int) -> None:
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
     s = float(size)
@@ -79,8 +101,6 @@ def render_icon(size: int) -> QImage:
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor("#ffffff"))
         painter.drawPath(path)
-    painter.end()
-    return image
 
 
 def app_icon() -> QIcon:
