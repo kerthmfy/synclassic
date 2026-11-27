@@ -17,6 +17,7 @@ from PySide6.QtGui import (
     QRadialGradient,
 )
 from PySide6.QtWidgets import (
+    QTreeWidget,
     QAbstractButton,
     QApplication,
     QStyleOptionViewItem,
@@ -594,3 +595,50 @@ class ClickableLabel(QLabel):
     def mousePressEvent(self, event):  # noqa: N802
         self.clicked.emit()
 
+
+
+class SourceList(QTreeWidget):
+    """The source list. Songs dragged onto an item emit `songs_dropped(item key, song ids)`;
+    `accepts_drop(key)` decides which items take them (set by the window)."""
+
+    songs_dropped = Signal(object, list)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self.setDropIndicatorShown(True)
+        self.accepts_drop = lambda key: False
+
+    def _target(self, event):
+        from synclassic.gui.ipod_views import song_ids_from
+
+        item = self.itemAt(event.position().toPoint())
+        if item is None or not song_ids_from(event.mimeData()):
+            return None, []
+        key = item.data(0, Qt.ItemDataRole.UserRole)
+        return (item, song_ids_from(event.mimeData())) if self.accepts_drop(key) else (None, [])
+
+    def dragEnterEvent(self, event):  # noqa: N802
+        from synclassic.gui.ipod_views import SONG_MIME
+
+        if event.mimeData().hasFormat(SONG_MIME):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):  # noqa: N802
+        item, _ = self._target(event)
+        if item is not None:
+            event.setDropAction(Qt.DropAction.CopyAction)
+            event.accept()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):  # noqa: N802
+        item, ids = self._target(event)
+        if item is None:
+            event.ignore()
+            return
+        event.setDropAction(Qt.DropAction.CopyAction)
+        event.accept()
+        self.songs_dropped.emit(item.data(0, Qt.ItemDataRole.UserRole), ids)

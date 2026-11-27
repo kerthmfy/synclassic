@@ -48,6 +48,7 @@ from synclassic.gui.widgets import (
     GradientBar,
     IPodGraphic,
     LcdDisplay,
+    SourceList,
     SourceListDelegate,
     StatusPillDelegate,
 )
@@ -103,6 +104,8 @@ class MainWindow(QMainWindow):
         self.ipod = None  # the connected iPod, if any
         self._ipod_root = None
         self.ipod_contents = None  # what's on it (synclassic.ipod.browse.Contents), loaded in the background
+        self._backed_up: set = set()  # iPods backed up this session (edits back up once per session)
+        self._pending_key = None  # a source to select as soon as it appears (e.g. a new iPod playlist)
 
         self._build_actions()
         self._build_menus()
@@ -153,6 +156,9 @@ class MainWindow(QMainWindow):
         self.ipod_action = action("Check iPod", self.check_ipod, None,
                                   "Read your iPod and check that Synclassic can manage it (changes nothing)")
         self.eject_action = action("Eject iPod", self.eject_ipod, QKeySequence("Ctrl+E"))
+        self.new_ipod_playlist_action = action("New Playlist on iPod…", lambda: self.new_ipod_playlist([]),
+                                               QKeySequence("Ctrl+Shift+N"))
+        self.import_ipod_playlist_action = action("Import Playlist to iPod…", self.import_ipod_playlist)
         self.folder_action = action("Show Music Folder", lambda: reveal_in_finder(load_settings().music_path))
         self.settings_action = action("Settings…", self.open_settings, QKeySequence.StandardKey.Preferences)
         self.log_action = action("Show Activity", self._toggle_log, QKeySequence("Ctrl+L"))
@@ -165,7 +171,8 @@ class MainWindow(QMainWindow):
                     self.settings_action):
             file_menu.addSeparator() if act is None else file_menu.addAction(act)
         ipod_menu = bar.addMenu("iPod")
-        for act in (self.update_sync_action, self.sync_action, self.ipod_action, None, self.eject_action):
+        for act in (self.update_sync_action, self.sync_action, None, self.new_ipod_playlist_action,
+                    self.import_ipod_playlist_action, None, self.ipod_action, self.eject_action):
             ipod_menu.addSeparator() if act is None else ipod_menu.addAction(act)
         view_menu = bar.addMenu("View")
         view_menu.addAction(self.log_action)
@@ -227,7 +234,9 @@ class MainWindow(QMainWindow):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setHandleWidth(1)
 
-        self.sidebar = QTreeWidget()
+        self.sidebar = SourceList()
+        self.sidebar.accepts_drop = self._accepts_song_drop
+        self.sidebar.songs_dropped.connect(self._songs_dropped)
         self.sidebar.setHeaderHidden(True)
         self.sidebar.setRootIsDecorated(False)
         self.sidebar.setIndentation(0)
@@ -305,6 +314,11 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.artists_page)  # 5
         self.genres_page = BrowserPage("Genre", "genre")
         self.stack.addWidget(self.genres_page)  # 6
+        for table in self._ipod_tables():
+            table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            table.customContextMenuRequested.connect(lambda pos, t=table: self._ipod_song_menu(t, pos))
+            table.delete_pressed.connect(lambda t=table: self._delete_pressed(t))
+        self.ipod_songs.reorder_requested.connect(self._reorder)
         right_layout.addWidget(self.stack, 1)
 
         self.log = QPlainTextEdit()
@@ -496,9 +510,10 @@ class MainWindow(QMainWindow):
                     tip = "Smart playlist" if playlist.smart else ("Managed by Synclassic" if playlist.synclassic else "")
                     self._add_source(playlist.name, ("ipodpl", playlist.id), "smart" if playlist.smart else "playlist",
                                      tip=tip, depth=1)
-        # Keep the selection.
+        # Keep the selection (or select the one asked for, once it exists).
         target = None
         first = None
+        pending = None
         for i in range(self.sidebar.topLevelItemCount()):
             item = self.sidebar.topLevelItem(i)
             if item.data(0, SECTION_ROLE):
@@ -506,6 +521,11 @@ class MainWindow(QMainWindow):
             first = first or item
             if item.data(0, Qt.ItemDataRole.UserRole) == self.current_key:
                 target = item
+            if self._pending_key is not None and item.data(0, Qt.ItemDataRole.UserRole) == self._pending_key:
+                pending = item
+        if pending is not None:
+            target = pending
+            self._pending_key = None
         target = target or first
         if target is not None:
             self.sidebar.setCurrentItem(target)
@@ -629,6 +649,7 @@ class MainWindow(QMainWindow):
             managed = " · kept in sync by Synclassic" if playlist.synclassic else ""
             self.subtitle.setText(f"{len(songs)} songs · {self._length(songs)} · {what} on {name}{managed}")
             self.ipod_songs.set_songs(songs, keep_order=True)
+            self.ipod_songs.reorderable = self._editable_playlist(playlist)
             self.stack.setCurrentIndex(3)
         elif which in ("music", "podcasts"):
             kind_name = "song" if which == "music" else "podcast"
@@ -636,6 +657,7 @@ class MainWindow(QMainWindow):
             self.title.setText("Music" if which == "music" else "Podcasts")
             self.subtitle.setText(f"{len(songs):,} {'songs' if which == 'music' else 'episodes'} · {self._length(songs)} · on {name}")
             self.ipod_songs.set_songs(songs)
+            self.ipod_songs.reorderable = False
             if which == "music":
                 self.ipod_songs.sortByColumn(2, Qt.SortOrder.AscendingOrder)
             self.stack.setCurrentIndex(3)
@@ -656,6 +678,284 @@ class MainWindow(QMainWindow):
         if minutes >= 24 * 60:
             return f"{minutes / 1440:.1f} days"
         return f"{minutes // 60} h {minutes % 60} min" if minutes >= 60 else f"{minutes} min"
+
+    # --- managing the iPod -------------------------------------------------------------------------
+
+    def _ipod_tables(self):
+        return [self.ipod_songs, self.albums_page.songs, self.artists_page.songs, self.genres_page.songs]
+
+    def _editable_playlist(self, playlist) -> bool:
+        return not playlist.smart and not playlist.synclassic
+
+    def _ipod_playlist(self, playlist_id):
+        contents = self.ipod_contents
+        return next((p for p in contents.playlists if p.id == playlist_id), None) if contents else None
+
+    def _current_ipod_playlist(self):
+        key = self.current_key
+        if isinstance(key, tuple) and key[0] == "ipodpl" and self.stack.currentIndex() == 3:
+            return self._ipod_playlist(key[1])
+        return None
+
+    def _why_not_editable(self, playlist) -> str:
+        if playlist.smart:
+            return f"“{playlist.name}” is a smart playlist: its songs come from its rules."
+        return (f"“{playlist.name}” is kept in sync from Spotify by Synclassic, so changes here would be replaced "
+                "at the next sync. Change it in Spotify, or remove it from Synclassic's PLAYLISTS.")
+
+    def _ipod_edit(self, text: str, action, select=None, done_message: str = "") -> None:
+        """Run a change to the iPod in the background, then reload what's on it."""
+        ipod = self.ipod
+        if ipod is None:
+            return
+        if self.job is not None:
+            QMessageBox.information(self, "Busy", "Wait for the current task to finish first.")
+            return
+        make_backup = ipod.root not in self._backed_up
+
+        def work(task):
+            return action(ipod, make_backup)
+
+        def finished(result):
+            self._backed_up.add(ipod.root)
+            if callable(select):
+                key = select(result)
+                if key is not None:
+                    self._pending_key = key  # selected once the reloaded contents list it
+            if done_message:
+                message = done_message(result) if callable(done_message) else done_message
+                self.say(message)
+                # Shown after the window returns to idle (which would otherwise replace it).
+                QTimer.singleShot(0, lambda: self.status_label.setText(message))
+            self._load_ipod_contents()
+
+        def failed(error):
+            box_title = "Couldn't change the iPod"
+            QMessageBox.warning(self, box_title, f"{error}\n\nNothing on the iPod was changed.")
+
+        self._run_job(text, work, finished, verb="Saving")
+        self.job.failed.connect(lambda error: failed(error))
+
+    def _accepts_song_drop(self, key) -> bool:
+        if isinstance(key, tuple) and key[0] == "ipodpl":
+            playlist = self._ipod_playlist(key[1])
+            return playlist is not None and self._editable_playlist(playlist)
+        return False
+
+    def _songs_dropped(self, key, ids) -> None:
+        playlist = self._ipod_playlist(key[1])
+        if playlist is not None:
+            self.add_to_ipod_playlist(playlist, ids)
+
+    def add_to_ipod_playlist(self, playlist, ids) -> None:
+        from synclassic.ipod import manage
+
+        if not self._editable_playlist(playlist):
+            QMessageBox.information(self, "Can't change this playlist", self._why_not_editable(playlist))
+            return
+        self._ipod_edit(
+            f"Adding to “{playlist.name}”…",
+            lambda ipod, backup: manage.add_to_playlist(ipod, playlist.id, ids, backup),
+            done_message=lambda added: f"Added {added} song{'s' if added != 1 else ''} to “{playlist.name}”",
+        )
+
+    def new_ipod_playlist(self, ids) -> None:
+        from synclassic.ipod import manage
+
+        if self.ipod is None or self.ipod_contents is None:
+            QMessageBox.information(self, "No iPod", "Plug in your iPod first.")
+            return
+        name, ok = QInputDialog.getText(self, "New Playlist", "Name of the new playlist on your iPod:",
+                                        text="untitled playlist")
+        if not ok or not name.strip():
+            return
+        self._ipod_edit(
+            "Creating playlist…",
+            lambda ipod, backup: manage.create_playlist(ipod, name.strip(), list(ids), backup),
+            select=lambda pid: ("ipodpl", pid),
+            done_message=f"Made “{name.strip()}” on your iPod",
+        )
+
+    def import_ipod_playlist(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+
+        from synclassic.ipod import manage
+
+        if self.ipod is None:
+            QMessageBox.information(self, "No iPod", "Plug in your iPod first.")
+            return
+        path, _ = QFileDialog.getOpenFileName(self, "Import a playlist to your iPod", "", "Playlists (*.m3u8 *.m3u)")
+        if not path:
+            return
+
+        def done(result):
+            parts = [f"{result.matched} already on the iPod"]
+            if result.copied:
+                parts.append(f"{result.copied} copied")
+            if result.missing:
+                parts.append(f"{len(result.missing)} not found")
+            if result.missing:
+                QMessageBox.information(self, "Playlist imported", "Imported: " + ", ".join(parts) + ".\n\nNot found:\n"
+                                        + "\n".join(result.missing[:25]) + ("\n…" if len(result.missing) > 25 else ""))
+            return "Imported: " + ", ".join(parts)
+
+        self._ipod_edit(
+            "Importing playlist…",
+            lambda ipod, backup: manage.import_m3u(ipod, pathlib.Path(path), make_backup=backup),
+            select=lambda result: ("ipodpl", result.playlist_id),
+            done_message=done,
+        )
+
+    def _ipod_source_menu(self, key, global_pos) -> None:
+        from PySide6.QtWidgets import QFileDialog
+
+        from synclassic.ipod import manage
+
+        if self.ipod_contents is None:
+            return
+        menu = QMenu(self)
+        new = menu.addAction("New Playlist…")
+        imp = menu.addAction("Import Playlist (.m3u8)…")
+        rename = delete = export = None
+        playlist = self._ipod_playlist(key[1]) if isinstance(key, tuple) and key[0] == "ipodpl" else None
+        if playlist is not None:
+            menu.addSeparator()
+            editable = self._editable_playlist(playlist)
+            rename = menu.addAction("Rename…")
+            delete = menu.addAction("Delete Playlist…")
+            rename.setEnabled(editable)
+            delete.setEnabled(editable)
+            if not editable:
+                note = menu.addAction("Smart playlist" if playlist.smart else "Kept in sync by Synclassic")
+                note.setEnabled(False)
+            menu.addSeparator()
+            export = menu.addAction("Export as .m3u8…")
+        chosen = menu.exec(global_pos)
+        if chosen is None:
+            return
+        if chosen == new:
+            self.new_ipod_playlist([])
+        elif chosen == imp:
+            self.import_ipod_playlist()
+        elif chosen == rename and playlist is not None:
+            name, ok = QInputDialog.getText(self, "Rename Playlist", "New name:", text=playlist.name)
+            if ok and name.strip() and name.strip() != playlist.name:
+                self._ipod_edit("Renaming…", lambda ipod, backup: manage.rename_playlist(ipod, playlist.id, name.strip(), backup),
+                                done_message=f"Renamed to “{name.strip()}”")
+        elif chosen == delete and playlist is not None:
+            answer = QMessageBox.question(self, "Delete Playlist",
+                                          f"Delete the playlist “{playlist.name}” from your iPod? Its songs stay on the iPod.")
+            if answer == QMessageBox.StandardButton.Yes:
+                self._ipod_edit("Deleting playlist…", lambda ipod, backup: manage.delete_playlist(ipod, playlist.id, backup),
+                                select=lambda _: ("ipod", "music"), done_message=f"Deleted “{playlist.name}”")
+        elif chosen == export and playlist is not None:
+            target, _ = QFileDialog.getSaveFileName(self, "Export playlist", f"{playlist.name}.m3u8", "Playlists (*.m3u8)")
+            if target:
+                count = manage.export_m3u(self.ipod, playlist.id, pathlib.Path(target))
+                self.status_label.setText(f"Exported {count} songs to {pathlib.Path(target).name}")
+
+    def _ipod_song_menu(self, table, position) -> None:
+        from synclassic.ipod import manage
+
+        ids = table.selected_ids()
+        if not ids or self.ipod_contents is None:
+            return
+        menu = QMenu(self)
+        add_menu = menu.addMenu("Add to Playlist")
+        new_from = add_menu.addAction("New Playlist from Selection…")
+        add_menu.addSeparator()
+        targets = {}
+        for playlist in self.ipod_contents.playlists:
+            if self._editable_playlist(playlist):
+                targets[add_menu.addAction(playlist.name)] = playlist
+        current = self._current_ipod_playlist() if table is self.ipod_songs else None
+        remove = top = bottom = None
+        if current is not None and self._editable_playlist(current):
+            menu.addSeparator()
+            remove = menu.addAction("Remove from Playlist")
+            if table.in_own_order():
+                top = menu.addAction("Move to Top")
+                bottom = menu.addAction("Move to Bottom")
+        menu.addSeparator()
+        delete = menu.addAction("Delete from iPod…")
+        reveal = menu.addAction("Show in Finder")
+        reveal.setEnabled(len(ids) == 1)
+        chosen = menu.exec(table.viewport().mapToGlobal(position))
+        if chosen is None:
+            return
+        if chosen == new_from:
+            self.new_ipod_playlist(ids)
+        elif chosen in targets:
+            self.add_to_ipod_playlist(targets[chosen], ids)
+        elif chosen == remove:
+            self._remove_from_playlist(current, ids)
+        elif chosen in (top, bottom):
+            rest = [i for i in current.song_ids if i not in set(ids)]
+            order = (ids + rest) if chosen == top else (rest + ids)
+            self._ipod_edit("Reordering…", lambda ipod, backup: manage.set_playlist_songs(ipod, current.id, order, backup))
+        elif chosen == delete:
+            self._delete_from_ipod(ids)
+        elif chosen == reveal:
+            song = self.ipod_contents.songs.get(ids[0])
+            if song and self.ipod:
+                reveal_in_finder(self.ipod.root / song.path)
+
+    def _remove_from_playlist(self, playlist, ids) -> None:
+        from synclassic.ipod import manage
+
+        remaining = [i for i in playlist.song_ids if i not in set(ids)]
+        self._ipod_edit(
+            "Removing from playlist…",
+            lambda ipod, backup: manage.set_playlist_songs(ipod, playlist.id, remaining, backup),
+            done_message=f"Removed {len(ids)} song{'s' if len(ids) != 1 else ''} from “{playlist.name}”",
+        )
+
+    def _delete_pressed(self, table) -> None:
+        ids = table.selected_ids()
+        if not ids:
+            return
+        current = self._current_ipod_playlist() if table is self.ipod_songs else None
+        if current is not None:
+            if self._editable_playlist(current):
+                self._remove_from_playlist(current, ids)
+            else:
+                QMessageBox.information(self, "Can't change this playlist", self._why_not_editable(current))
+        else:
+            self._delete_from_ipod(ids)
+
+    def _delete_from_ipod(self, ids) -> None:
+        from synclassic.ipod import manage
+
+        songs = [self.ipod_contents.songs[i] for i in ids if i in self.ipod_contents.songs]
+        names = "\n".join(f"• {s.artist} – {s.title}" if s.artist else f"• {s.title}" for s in songs[:8])
+        more = f"\n…and {len(songs) - 8} more" if len(songs) > 8 else ""
+        answer = QMessageBox.question(
+            self, "Delete from iPod",
+            f"Delete {len(songs)} song{'s' if len(songs) != 1 else ''} from your iPod? They're removed from every "
+            f"playlist and their files are deleted.\n\n{names}{more}",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self._ipod_edit(
+            "Deleting from iPod…",
+            lambda ipod, backup: manage.delete_songs(ipod, set(ids), backup),
+            done_message=lambda count: f"Deleted {count} song{'s' if count != 1 else ''} from your iPod",
+        )
+
+    def _reorder(self, ids, row) -> None:
+        from synclassic.ipod import manage
+
+        playlist = self._current_ipod_playlist()
+        if playlist is None or not self._editable_playlist(playlist):
+            return
+        shown = self.ipod_songs.song_ids_in_view()
+        moving = set(ids)
+        before = [i for i in shown[:row] if i not in moving]
+        after = [i for i in shown[row:] if i not in moving]
+        order = before + [i for i in shown if i in moving] + after
+        if order == playlist.song_ids:
+            return
+        self._ipod_edit("Reordering…", lambda ipod, backup: manage.set_playlist_songs(ipod, playlist.id, order, backup))
 
     def _load_ipod_contents(self) -> None:
         """Read what's on the iPod (in the background), then show it in the source list."""
@@ -828,6 +1128,11 @@ class MainWindow(QMainWindow):
 
     def _sidebar_menu(self, position) -> None:
         row = self.sidebar.itemAt(position)
+        if row is not None and not row.data(0, SECTION_ROLE):
+            key = row.data(0, Qt.ItemDataRole.UserRole)
+            if key == IPOD or isinstance(key, tuple):
+                self._ipod_source_menu(key, self.sidebar.viewport().mapToGlobal(position))
+                return
         if not row or row.data(0, SECTION_ROLE) or row.data(0, Qt.ItemDataRole.UserRole) in (ATTENTION, IPOD):
             return
         playlist = next((p for p in self.library.playlists() if p.id == row.data(0, Qt.ItemDataRole.UserRole)), None)
@@ -1193,6 +1498,8 @@ class MainWindow(QMainWindow):
                 return
             self.job.task.stop()
             self.job.wait(15000)
+        self._ipod_timer.stop()
+        self._refresh_timer.stop()
         self.library.close()
         event.accept()
 

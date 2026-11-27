@@ -217,6 +217,20 @@ What a sync does:
 - Removes songs **Synclassic added** once no playlist uses them. Music you put on the iPod
   some other way is never deleted, and your other playlists are left as they are.
 
+**Managing the iPod in the app.** Plug it in and it appears under DEVICES with Music, Albums,
+Artists, Genres and all its playlists. Right-click or drag, like iTunes:
+
+- **New Playlist** (empty, or from selected songs), **Rename**, **Delete**, **Export as .m3u8**,
+  **Import .m3u8** (songs already on the iPod are used; files on your Mac are copied over).
+- **Drag songs** onto an iPod playlist to add them; drag within a playlist to reorder (or
+  right-click → Move to Top/Bottom). **Delete** removes from the playlist.
+- **Delete from iPod** removes songs and their files.
+- Smart playlists and playlists Synclassic keeps in sync from Spotify aren't edited here (the
+  next sync would overwrite the changes); change those in Spotify.
+
+Each change is checked, written safely and verified, like a sync; the iPod is backed up before
+the first change of each session.
+
 Safety: the iPod's database is backed up before every sync (the last 10 are kept). To go back:
 
 ```bash

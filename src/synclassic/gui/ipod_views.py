@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, QRectF, QSize, QSortFilterProxyModel, Qt, Signal
+import json
+
+from PySide6.QtCore import QAbstractTableModel, QMimeData, QModelIndex, QRectF, QSize, QSortFilterProxyModel, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QImage, QLinearGradient, QPainter, QPen, QPixmap, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -23,6 +25,7 @@ from synclassic.gui import theme
 from synclassic.ipod.browse import Album, Contents, Song
 
 COLUMNS = ["Name", "Time", "Artist", "Album", "Genre", "Plays", "Rating", "Date Added"]
+SONG_MIME = "application/x-synclassic-ipod-song-ids"
 SORT_ROLE = Qt.ItemDataRole.UserRole + 10
 SONG_ID_ROLE = Qt.ItemDataRole.UserRole + 11
 
@@ -47,6 +50,25 @@ class SongsModel(QAbstractTableModel):
 
     def columnCount(self, parent=QModelIndex()):  # noqa: N802
         return len(COLUMNS)
+
+    def flags(self, index):
+        base = super().flags(index)
+        return base | Qt.ItemFlag.ItemIsDragEnabled if index.isValid() else base | Qt.ItemFlag.ItemIsDropEnabled
+
+    def mimeTypes(self):  # noqa: N802
+        return [SONG_MIME]
+
+    def mimeData(self, indexes):  # noqa: N802
+        ids = list(dict.fromkeys(self.songs[i.row()].id for i in indexes if i.isValid()))
+        data = QMimeData()
+        data.setData(SONG_MIME, json.dumps(ids).encode())
+        return data
+
+    def supportedDragActions(self):  # noqa: N802
+        return Qt.DropAction.CopyAction | Qt.DropAction.MoveAction
+
+    def supportedDropActions(self):  # noqa: N802
+        return Qt.DropAction.MoveAction
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):  # noqa: N802
         if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
@@ -103,11 +125,33 @@ class SongFilter(QSortFilterProxyModel):
         return left.data(SORT_ROLE) < right.data(SORT_ROLE)
 
 
+def song_ids_from(mime: QMimeData) -> list[int]:
+    if not mime.hasFormat(SONG_MIME):
+        return []
+    try:
+        return [int(i) for i in json.loads(bytes(mime.data(SONG_MIME)).decode())]
+    except (ValueError, TypeError):
+        return []
+
+
 class SongTable(QTableView):
-    """The striped, sortable song list used everywhere on the iPod side."""
+    """The striped, sortable song list used everywhere on the iPod side.
+
+    Songs can be dragged (onto playlists in the source list). When `reorderable` is on (an
+    editable playlist in its own order), dragging within the list emits `reorder_requested`.
+    """
+
+    reorder_requested = Signal(list, int)  # song ids being moved, row to put them before
+    delete_pressed = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.reorderable = False
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        self.setDropIndicatorShown(True)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.DragDrop)
+        self.setDefaultDropAction(Qt.DropAction.CopyAction)
         self.source = SongsModel(self)
         self.proxy = SongFilter(self)
         self.proxy.setSourceModel(self.source)
@@ -139,8 +183,50 @@ class SongTable(QTableView):
             self.proxy.sort(-1)
             self.horizontalHeader().setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
 
+    def song_ids_in_view(self) -> list[int]:
+        return [self.model().index(row, 0).data(SONG_ID_ROLE) for row in range(self.model().rowCount())]
+
     def selected_ids(self) -> list[int]:
-        return [index.data(SONG_ID_ROLE) for index in self.selectionModel().selectedRows()]
+        rows = sorted(self.selectionModel().selectedRows(), key=lambda index: index.row())
+        return [index.data(SONG_ID_ROLE) for index in rows]
+
+    def in_own_order(self) -> bool:
+        return self.horizontalHeader().sortIndicatorSection() == -1 or not self.horizontalHeader().isSortIndicatorShown()
+
+    def _can_reorder(self, event) -> bool:
+        return self.reorderable and event.source() is self and bool(song_ids_from(event.mimeData()))
+
+    def dragEnterEvent(self, event):  # noqa: N802
+        if self._can_reorder(event):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):  # noqa: N802
+        if self._can_reorder(event):
+            super().dragMoveEvent(event)
+            event.setDropAction(Qt.DropAction.MoveAction)
+            event.accept()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):  # noqa: N802
+        if not self._can_reorder(event):
+            event.ignore()
+            return
+        index = self.indexAt(event.position().toPoint())
+        row = index.row() if index.isValid() else self.model().rowCount()
+        if index.isValid() and event.position().y() > self.visualRect(index).center().y():
+            row += 1
+        event.setDropAction(Qt.DropAction.CopyAction)  # the list itself is rebuilt after saving
+        event.accept()
+        self.reorder_requested.emit(song_ids_from(event.mimeData()), row)
+
+    def keyPressEvent(self, event):  # noqa: N802
+        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            self.delete_pressed.emit()
+            return
+        super().keyPressEvent(event)
 
 
 # --- album grid ------------------------------------------------------------------------------------

@@ -213,3 +213,60 @@ def test_browse_the_ipod(app, monkeypatch, tmp_path):
     select(("ipod", "artists"))
     assert window.artists_page.list.count() == len(window.artists_page.groups) + 1
     window.close()
+
+
+def test_manage_ipod_playlists_from_the_window(app, monkeypatch, tmp_path):
+    """New playlist from a selection, drag songs onto it, reorder by dragging, remove, delete from iPod."""
+    from PySide6.QtWidgets import QInputDialog, QMessageBox
+
+    from synclassic.gui.main_window import MainWindow
+    from synclassic.ipod import itunesdb
+    from tests.test_ipod_read import fake_ipod, load
+
+    root = fake_ipod(tmp_path, load("captured-album-index-36.b64"))
+    monkeypatch.setenv("SYNCLASSIC_IPOD", str(root))
+    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("Road Trip", True)))
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
+    database = root / "iPod_Control" / "iTunes" / "iTunesDB"
+    songs = itunesdb.songs(itunesdb.parse(database.read_bytes()))
+
+    def playlist_titles(name):
+        db = itunesdb.parse(database.read_bytes())
+        by_id = {s.id: s.title for s in itunesdb.songs(db)}
+        view = next((p for p in itunesdb.playlists(db, 3) if p.name == name), None)  # the section the iPod reads
+        return None if view is None else [by_id[i] for i in view.track_ids]
+
+    window = MainWindow()
+    assert wait_until(app, lambda: window.ipod_contents is not None)
+
+    def settle():
+        assert wait_until(app, lambda: window.job is None and window.ipod_contents is not None, 20)
+        wait_until(app, lambda: False, 0.3)
+
+    window.new_ipod_playlist([songs[0].id, songs[1].id])
+    settle()
+    assert playlist_titles("Road Trip") == [songs[0].title, songs[1].title]
+    assert window.current_key[0] == "ipodpl" and window.title.text() == "Road Trip"  # it opened
+    pid = window.current_key[1]
+
+    assert window.sidebar.accepts_drop(("ipodpl", pid))
+    window._songs_dropped(("ipodpl", pid), [songs[5].id, songs[0].id])  # drag onto it (songs[0] already there)
+    settle()
+    assert playlist_titles("Road Trip") == [songs[0].title, songs[1].title, songs[5].title]
+    assert "Added 1 song" in window.status_label.text()
+
+    window._reorder([songs[5].id], 0)  # drag the last song to the top
+    settle()
+    assert playlist_titles("Road Trip") == [songs[5].title, songs[0].title, songs[1].title]
+
+    window._remove_from_playlist(window._ipod_playlist(pid), [songs[0].id])
+    settle()
+    assert playlist_titles("Road Trip") == [songs[5].title, songs[1].title]
+
+    window._delete_from_ipod([songs[1].id])
+    settle()
+    assert playlist_titles("Road Trip") == [songs[5].title]
+    assert len(itunesdb.songs(itunesdb.parse(database.read_bytes()))) == 59
+    backups = list((window.library_path.parent / "ipod-backups").rglob("iTunesDB"))
+    assert len(backups) == 1  # backed up once for the whole session
+    window.close()
