@@ -381,3 +381,125 @@ class SmartPlaylistsDialog(QDialog):
 
     def chosen(self) -> set[str]:
         return {key for key, box in self.boxes.items() if box.isChecked()}
+
+
+class ExtrasDialog(QDialog):
+    """Contacts, calendars and notes for the iPod's Extras menu."""
+
+    def __init__(self, ipod, parent=None):
+        from PySide6.QtWidgets import QGridLayout
+
+        super().__init__(parent)
+        self.ipod = ipod
+        self.worker = None
+        self.setWindowTitle("Contacts, Calendars & Notes")
+        self.setMinimumWidth(560)
+        layout = QVBoxLayout(self)
+        intro = QLabel("These show on the iPod under Extras. Copying again replaces what Synclassic copied before; "
+                       "anything else on the iPod stays.")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+        grid = QGridLayout()
+        self.count_labels = {}
+        rows = [
+            ("contacts", "Contacts", [("Copy My Mac's Contacts", self._mac_contacts), ("Add vCard Files…", self._vcards)]),
+            ("calendars", "Calendars", [("Add Calendar Files…", self._calendars)]),
+            ("notes", "Notes", [("Copy My Apple Notes", self._mac_notes), ("Add Text Files…", self._text_notes)]),
+        ]
+        for row, (kind, title, buttons) in enumerate(rows):
+            name = QLabel(f"<b>{title}</b>")
+            grid.addWidget(name, row, 0)
+            self.count_labels[kind] = QLabel("")
+            grid.addWidget(self.count_labels[kind], row, 1)
+            for column, (text, slot) in enumerate(buttons, start=2):
+                button = QPushButton(text)
+                button.clicked.connect(slot)
+                grid.addWidget(button, row, column)
+            clear = QPushButton("Remove")
+            clear.setToolTip(f"Remove the {title.lower()} Synclassic copied")
+            clear.clicked.connect(lambda _=False, k=kind: self._remove(k))
+            grid.addWidget(clear, row, 4)
+        layout.addLayout(grid)
+        self.status = QLabel("")
+        self.status.setWordWrap(True)
+        layout.addWidget(self.status)
+        close = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        close.rejected.connect(self.reject)
+        layout.addWidget(close)
+        self._refresh()
+
+    def _refresh(self) -> None:
+        from synclassic.ipod import extras
+
+        for kind, number in extras.counts(self.ipod).items():
+            self.count_labels[kind].setText(f"{number} on the iPod")
+
+    def _run(self, text: str, work) -> None:
+        if self.worker is not None:
+            return
+        self.status.setText(text)
+
+        def done(message):
+            self.worker = None
+            self.status.setText(message)
+            self._refresh()
+
+        def failed(error):
+            self.worker = None
+            self.status.setText(str(error))
+
+        self.worker = run_in_background(self, lambda task: work(), done, failed)
+
+    def _files(self, title: str, pattern: str) -> list:
+        import pathlib
+
+        from PySide6.QtWidgets import QFileDialog
+
+        files, _ = QFileDialog.getOpenFileNames(self, title, str(pathlib.Path.home()), pattern)
+        return [pathlib.Path(f) for f in files]
+
+    def _mac_contacts(self) -> None:
+        from synclassic.ipod import extras
+
+        self._run("Reading your contacts (macOS may ask for permission)…",
+                  lambda: f"Copied {extras.put_contacts(self.ipod, extras.mac_contacts())} contacts.")
+
+    def _vcards(self) -> None:
+        from synclassic.ipod import extras
+
+        paths = self._files("vCard files", "vCards (*.vcf)")
+        if paths:
+            self._run("Copying contacts…",
+                      lambda: f"Copied {extras.put_contacts(self.ipod, extras.contacts_from_files(paths))} contacts.")
+
+    def _calendars(self) -> None:
+        from synclassic.ipod import extras
+
+        paths = self._files("Calendar files (Calendar: File → Export)", "Calendars (*.ics)")
+        if paths:
+            self._run("Copying calendars…", lambda: f"Copied {extras.put_calendars(self.ipod, paths)} calendars.")
+
+    def _mac_notes(self) -> None:
+        from synclassic.ipod import extras
+
+        self._run("Reading Apple Notes (macOS may ask for permission)…",
+                  lambda: f"Copied {extras.put_notes(self.ipod, extras.mac_notes())} notes.")
+
+    def _text_notes(self) -> None:
+        from synclassic.ipod import extras
+
+        paths = self._files("Text files", "Text (*.txt)")
+        if paths:
+            self._run("Copying notes…",
+                      lambda: f"Copied {extras.put_notes(self.ipod, extras.notes_from_files(paths))} notes.")
+
+    def _remove(self, kind: str) -> None:
+        from synclassic.ipod import extras
+
+        removed = extras.remove(self.ipod, kind)
+        self.status.setText(f"Removed {removed} {kind} Synclassic had copied.")
+        self._refresh()
+
+    def done(self, result: int) -> None:
+        mark_closed(self)
+        super().done(result)

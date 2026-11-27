@@ -297,6 +297,11 @@ background" (every 3/6/12/24 hours, even with the app closed: a macOS LaunchAgen
 iPod's Music → Audiobooks menu, remember where you stopped, are left out of shuffle, and keep the
 chapters of `.m4b` files.
 
+**Contacts, Calendars & Notes…** (iPod menu): for the iPod's Extras menu. Copy your Mac's
+contacts (from the Contacts app) or `.vcf` files, calendars exported from Calendar (`.ics`), and
+your Apple Notes or `.txt` files. Copying again replaces what Synclassic copied before; anything
+else on the iPod stays. (macOS asks once for permission to read Contacts and Notes.)
+
 **Smart Playlists…** (iPod menu, or `synclassic ipod smart`): Recently Added, Recently Played,
 Top 25 Most Played, My Top Rated and Never Played, as real iPod smart playlists. The iPod keeps
 them up to date as you play, and every sync refreshes them.

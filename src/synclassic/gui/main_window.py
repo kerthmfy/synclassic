@@ -189,6 +189,8 @@ class MainWindow(QMainWindow):
                                        "Look up missing genres and years for songs on this Mac and on the iPod")
         self.audiobooks_action = action("Add Audiobooks…", self.add_audiobooks, None,
                                         "Copy audiobooks (.m4b) to the iPod's Audiobooks menu")
+        self.extras_action = action("Contacts, Calendars && Notes…", self.show_extras, None,
+                                    "Put contacts, calendars and notes on the iPod (Extras menu)")
         self.smart_action = action("Smart Playlists…", self.choose_smart_playlists, None,
                                    "Recently Added, Top 25 Most Played and more, kept up to date by the iPod")
         self.fix_art_action = action("Fix Album Art…", self.show_fix_art, None,
@@ -213,7 +215,7 @@ class MainWindow(QMainWindow):
             file_menu.addSeparator() if act is None else file_menu.addAction(act)
         ipod_menu = bar.addMenu("iPod")
         for act in (self.update_sync_action, self.sync_action, None, self.new_ipod_playlist_action, self.smart_action,
-                    self.audiobooks_action,
+                    self.audiobooks_action, self.extras_action,
                     self.import_ipod_playlist_action, self.info_action, None, self.scrobble_action, None,
                     self.backups_action, self.cleanup_action, self.fix_art_action, self.lyrics_action,
                     self.info_fill_action, self.soundcheck_action, self.ipod_action, None, self.eject_action):
@@ -1511,6 +1513,14 @@ class MainWindow(QMainWindow):
                 self._load_ipod_contents()
 
         self._run_job("Filling in genres and years…", work, finished, verb="Looking up")
+
+    def show_extras(self) -> None:
+        from synclassic.gui.maintenance_dialogs import ExtrasDialog
+
+        if self.ipod is None:
+            QMessageBox.information(self, "No iPod", "Plug in your iPod first.")
+            return
+        ExtrasDialog(self.ipod, self).exec()
 
     def add_audiobooks(self) -> None:
         from PySide6.QtWidgets import QFileDialog
