@@ -391,7 +391,7 @@ def cmd_ipod(args) -> int:
         return 0 if report.safe_to_manage else 2
 
     if action == "eject":
-        say(ipod_sync.eject(ipod))
+        say(ipod_sync.eject(ipod, force=args.force))
         return 0
 
     if action == "restore":
@@ -669,6 +669,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dry-run", action="store_true", help="sync: only show what would change")
     p.add_argument("--yes", action="store_true", help="don't ask for confirmation")
     p.add_argument("--eject", action="store_true", help="sync: eject the iPod afterwards")
+    p.add_argument("--force", action="store_true", help="eject: even while macOS's device agent holds the iPod")
     p.set_defaults(func=cmd_ipod)
 
     p = sub.add_parser("gui", help="open the Synclassic app window")

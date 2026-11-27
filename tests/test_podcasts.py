@@ -294,3 +294,46 @@ def test_the_podcasts_playlist_cant_be_edited_by_hand(tmp_path, ipod, audio_inte
     manage.delete_songs(ipod, {episode.id})
     assert len(show_groups(read_db(ipod))["Sample Talk Show"]) == 1
     assert check(ipod).safe_to_manage
+
+
+def test_episodes_you_download_yourself_go_on_the_ipod_too(tmp_path, ipod, audio_internet):
+    library = Library(config.app_dir() / "library.db")
+    store = Podcasts(library)
+    podcast = store.subscribe(FEED_URL, audio_internet)
+    store.set_keep(podcast.id, 1)
+    older = store.episodes(podcast.id)[1]
+    store.download(older, tmp_path / "music", audio_internet)  # double-clicked in the list
+    plan = sync.make_plan(library, ipod)
+    assert [e.title for _, e in plan.podcasts.copy] == ["Episode 1: Earlier"]
+    assert plan.podcasts.not_downloaded == 1  # the newest one, which the show keeps
+    assert any("not downloaded yet" in line for line in plan.summary())
+    store.set_keep(podcast.id, 0)  # "None (don't put on iPod)"
+    assert sync.make_plan(library, ipod).podcasts.copy == []
+
+
+def test_eject_retries_while_macos_holds_the_ipod_then_can_force(tmp_path):
+    from types import SimpleNamespace
+
+    busy = ("Unmount of disk4 failed: at least one volume could not be unmounted\nUnmount was dissented by PID 720 "
+            "(/System/Library/PrivateFrameworks/AMPDevices.framework/Versions/A/AMPDeviceDiscoveryAgent)")
+    info = ("<?xml version='1.0'?><plist version='1.0'><dict><key>ParentWholeDisk</key><string>disk4</string>"
+            "</dict></plist>")
+    calls = []
+
+    def run(args, answers=iter([1, 1, 0])):
+        calls.append(args)
+        if args[1] == "info":
+            return SimpleNamespace(returncode=0, stdout=info, stderr="")
+        code = next(answers)
+        return SimpleNamespace(returncode=code, stdout="", stderr=busy if code else "")
+
+    ipod = SimpleNamespace(root=tmp_path)
+    assert sync.eject_ipod(ipod, run=run, sleep=lambda s: None).ok
+    assert calls[1:] == [["diskutil", "eject", "disk4"]] * 3
+
+    calls.clear()
+    failing = sync.eject_ipod(ipod, run=lambda a: run(a, iter([1] * 9)), sleep=lambda s: None)
+    assert not failing.ok and failing.blocked_by == "AMPDeviceDiscoveryAgent"
+    calls.clear()
+    assert sync.eject_ipod(ipod, force=True, run=lambda a: run(a, iter([0, 0])), sleep=lambda s: None).ok
+    assert calls[1:] == [["diskutil", "unmountDisk", "force", "disk4"], ["diskutil", "eject", "disk4"]]

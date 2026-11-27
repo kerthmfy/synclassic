@@ -498,6 +498,11 @@ def test_podcasts_from_the_window(app, monkeypatch, tmp_path):
     assert wait_until(app, lambda: page.topLevelItem(0).child(0).text(4) == "Played")
     assert Podcasts(window.library).new_count() == 1
 
+    window.podcasts_update_action.trigger()  # the button: Qt passes its "checked" flag
+    assert wait_until(app, lambda: window.job is None)
+    log = window.log.toPlainText()
+    assert "Error" not in log and "Podcasts are up to date." in log
+
     page.apply_search("earlier")
     assert page.topLevelItem(0).child(0).isHidden() and not page.topLevelItem(0).child(1).isHidden()
     window.close()

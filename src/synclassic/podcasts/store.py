@@ -199,6 +199,14 @@ class Podcasts:
             return []
         return [e for e in self.episodes(podcast.id) if not e.played][: podcast.keep_on_ipod]
 
+    def for_ipod(self, podcast: Podcast) -> list[StoredEpisode]:
+        """What goes on the iPod: the episodes the show keeps, plus any other unplayed episode
+        you downloaded yourself. Newest first. None when the show is set to stay off the iPod."""
+        if podcast.keep_on_ipod <= 0:
+            return []
+        keep = {e.id for e in self.wanted(podcast)}
+        return [e for e in self.episodes(podcast.id) if e.id in keep or (e.downloaded and not e.played)]
+
     def new_count(self) -> int:
         """Downloaded episodes not played yet (the badge in the source list)."""
         return self.db.execute(

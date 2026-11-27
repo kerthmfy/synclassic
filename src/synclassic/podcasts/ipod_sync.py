@@ -31,6 +31,7 @@ class PodcastPlan:
     reuse: dict[str, int] = field(default_factory=dict)  # episode key -> dbid already on the iPod
     remove: list[itunesdb.SongView] = field(default_factory=list)
     marked_played: int = 0
+    not_downloaded: int = 0  # episodes that should go on but aren't downloaded yet
     bytes_to_copy: int = 0
     bytes_to_free: int = 0
 
@@ -44,6 +45,9 @@ class PodcastPlan:
             lines.append(f"  Podcasts: add {len(self.copy)} episode{'s' if len(self.copy) != 1 else ''}")
         if self.remove:
             lines.append(f"  Podcasts: remove {len(self.remove)} played or older episode{'s' if len(self.remove) != 1 else ''}")
+        if self.not_downloaded:
+            lines.append(f"  Podcasts: {self.not_downloaded} episode{'s' if self.not_downloaded != 1 else ''} not "
+                         "downloaded yet (Update Podcasts, or Update & Sync, gets them)")
         if self.marked_played:
             lines.append(f"  Podcasts: {self.marked_played} episode{'s' if self.marked_played != 1 else ''} played on the iPod")
         return lines
@@ -89,7 +93,7 @@ def plan(library: Library, ipod, db: itunesdb.Chunk, state: dict) -> PodcastPlan
     # 2. What each show wants on the iPod.
     wanted_keys = set()
     for podcast in podcasts:
-        for episode in store.wanted(podcast):
+        for episode in store.for_ipod(podcast):
             key = episode_key(podcast, episode)
             entry = known.get(key)
             if entry and int(entry["dbid"], 16) in by_dbid:
@@ -104,6 +108,8 @@ def plan(library: Library, ipod, db: itunesdb.Chunk, state: dict) -> PodcastPlan
                 result.copy.append((podcast, episode))
                 result.bytes_to_copy += path.stat().st_size
                 wanted_keys.add(key)
+            else:
+                result.not_downloaded += 1
 
     # 3. Episodes Synclassic added that nothing wants any more.
     for key, entry in known.items():

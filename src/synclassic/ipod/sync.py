@@ -636,14 +636,73 @@ def _queue_scrobbles(db: itunesdb.Chunk, entries, say: Say) -> None:
         say(f"{added} plays saved for scrobbling to Last.fm.")
 
 
-def eject(ipod: IPod) -> str:
-    """Safely eject (macOS). Returns a message."""
+@dataclass
+class EjectResult:
+    ok: bool
+    message: str
+    blocked_by: str = ""  # the app keeping the iPod busy, when macOS names one
+
+
+def _blocker(text: str) -> str:
+    """macOS says e.g. "dissented by PID 720 (/System/.../AMPDeviceDiscoveryAgent)"."""
+    import re
+
+    found = re.search(r"dissented by PID \d+ \(([^)]*)\)", text)
+    return found.group(1).rsplit("/", 1)[-1] if found else ""
+
+
+def _whole_disk(root: pathlib.Path, run) -> str:
+    import plistlib
+
+    result = run(["diskutil", "info", "-plist", str(root)])
+    try:
+        info = plistlib.loads(result.stdout.encode() if isinstance(result.stdout, str) else result.stdout)
+    except Exception:
+        return ""
+    return info.get("ParentWholeDisk") or info.get("DeviceIdentifier") or ""
+
+
+def eject_ipod(ipod: IPod, force: bool = False, attempts: int = 4, wait: float = 1.5, run=None,
+               sleep=None) -> EjectResult:
+    """Eject safely (macOS). macOS's own device agent (AMPDeviceDiscoveryAgent, the Finder's
+    iPod/iPhone helper) often looks at an iPod right after it changes and briefly refuses the
+    eject, so this tries a few times. `force` unmounts even while something holds it (everything
+    Synclassic wrote is flushed to the iPod first)."""
     import subprocess
     import sys
+    import time
 
-    if sys.platform != "darwin":
-        return "Eject the iPod from your file manager before unplugging it."
-    result = subprocess.run(["diskutil", "eject", str(ipod.root)], capture_output=True, text=True)
-    if result.returncode == 0:
-        return "Ejected. You can unplug the iPod."
-    return f"Couldn't eject: {result.stderr.strip() or result.stdout.strip()}"
+    if sys.platform != "darwin" and run is None:
+        return EjectResult(False, "Eject the iPod from your file manager before unplugging it.")
+    run = run or (lambda args: subprocess.run(args, capture_output=True, text=True))
+    sleep = sleep or time.sleep
+    if hasattr(os, "sync"):
+        os.sync()
+    disk = _whole_disk(ipod.root, run)
+    if force:
+        if not disk:
+            return EjectResult(False, "Couldn't find the iPod's disk to force it to eject.")
+        result = run(["diskutil", "unmountDisk", "force", disk])
+        if result.returncode == 0:
+            run(["diskutil", "eject", disk])
+            return EjectResult(True, "Ejected. You can unplug the iPod.")
+        text = (result.stderr or result.stdout or "").strip()
+        return EjectResult(False, f"Couldn't eject: {text}", _blocker(text))
+    text = ""
+    for attempt in range(attempts):
+        result = run(["diskutil", "eject", disk or str(ipod.root)])
+        if result.returncode == 0:
+            return EjectResult(True, "Ejected. You can unplug the iPod.")
+        text = (result.stderr or result.stdout or "").strip()
+        if attempt + 1 < attempts:
+            sleep(wait)
+    return EjectResult(False, f"Couldn't eject: {text}", _blocker(text))
+
+
+def eject(ipod: IPod, force: bool = False) -> str:
+    """Eject safely (macOS). Returns a message."""
+    result = eject_ipod(ipod, force)
+    if not result.ok and result.blocked_by:
+        return (f"Couldn't eject: {result.blocked_by} is still using the iPod. Try again in a moment, "
+                "or force it: synclassic ipod eject --force")
+    return result.message

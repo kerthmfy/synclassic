@@ -161,7 +161,7 @@ class MainWindow(QMainWindow):
         self.add_action = action("Add Playlists…", self.add_playlists, QKeySequence.StandardKey.New)
         self.subscribe_action = action("Subscribe to Podcast…", self.subscribe_podcast, None,
                                        "Find a podcast, or paste its feed address")
-        self.podcasts_update_action = action("Update Podcasts", self.update_podcasts, None,
+        self.podcasts_update_action = action("Update Podcasts", lambda: self.update_podcasts(), None,
                                              "Check every podcast for new episodes and download them")
         self.update_action = action("Update All", lambda: self.start_update(None), QKeySequence("Ctrl+R"),
                                     "Check every playlist for new songs and download them")
@@ -1572,6 +1572,8 @@ class MainWindow(QMainWindow):
     def update_podcasts(self, podcast_ids: list[int] | None = None) -> None:
         if self.job is not None:
             return
+        if not isinstance(podcast_ids, list):  # e.g. a button's "checked" flag
+            podcast_ids = None
         path = self.library_path
 
         def work(task: Task):
@@ -1846,10 +1848,45 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Busy", "Wait for the current task to finish first.")
             return
         self.player.stop_if_from(self.ipod.root)
-        message = ipod_sync.eject(self.ipod)
-        self.say(message)
-        self.status_label.setText(message)
-        self._detect_ipod()
+        ipod = self.ipod
+        self.status_label.setText("Ejecting…")
+        self.lcd.secondary.setText(ipod.name)
+
+        def finished(result, forced=False):
+            self.say(result.message)
+            if result.ok:
+                self.status_label.setText("Ejected")
+                self.lcd.secondary.setText("You can unplug the iPod.")
+                self._detect_ipod()
+                return
+            self.status_label.setText("Couldn't eject the iPod")
+            self.lcd.secondary.setText(result.blocked_by or "See Show Activity for details")
+            if forced:
+                QMessageBox.warning(self, "Couldn't eject", result.message)
+                return
+            who = (f"macOS's device helper ({result.blocked_by})" if result.blocked_by.startswith("AMP")
+                   else (result.blocked_by or "Another app"))
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setWindowTitle("Couldn't eject")
+            box.setText("The iPod is still in use, so it couldn't be ejected.")
+            box.setInformativeText(
+                f"{who} is holding it. That usually passes in a few seconds. Everything Synclassic "
+                "wrote is already saved on the iPod, so forcing the eject is safe.")
+            box.setDetailedText(result.message)
+            force = box.addButton("Force Eject", QMessageBox.ButtonRole.DestructiveRole)
+            again = box.addButton("Try Again", QMessageBox.ButtonRole.AcceptRole)
+            box.addButton(QMessageBox.StandardButton.Cancel)
+            box.setDefaultButton(again)
+            box.exec()
+            if box.clickedButton() is again:
+                QTimer.singleShot(0, self.eject_ipod)
+            elif box.clickedButton() is force:
+                self.status_label.setText("Ejecting…")
+                run_in_background(self, lambda task: ipod_sync.eject_ipod(ipod, force=True),
+                                  lambda r: finished(r, forced=True), lambda error: self.say(error))
+
+        run_in_background(self, lambda task: ipod_sync.eject_ipod(ipod), finished, lambda error: self.say(error))
 
     # --- menus --------------------------------------------------------------------------------
 
