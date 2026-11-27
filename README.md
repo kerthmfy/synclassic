@@ -266,6 +266,30 @@ album art was supported get it on the next sync. Covers shared by several songs 
 once. Existing artwork is never changed: the image files are only ever added to, and the
 artwork database is backed up with the music database.
 
+## Podcasts
+
+Click **Podcasts** (under LIBRARY) and press **Subscribe…**: search Apple's podcast directory
+by name, or paste a show's feed (RSS) address. Each show lists its episodes under a disclosure
+triangle, newest first; a blue dot marks an episode you haven't played.
+
+- **Update Podcasts** (also part of **Update All** and **Update & Sync**) checks every show for
+  new episodes and downloads the newest unplayed ones it keeps (3 by default; right-click a
+  show → **Keep on iPod** to change it, or "None" to keep a show off the iPod).
+- Double-click an episode to play it (one not downloaded yet is downloaded). An episode played
+  to the end is marked played; right-click for **Mark as Played / New**, **Download**,
+  **Remove Download**, **Unsubscribe…**.
+- **On the iPod**, episodes appear in its own **Podcasts** menu, grouped by show, with the blue
+  dot, a remembered position, and left out of shuffle, like iTunes did it. Episodes you finish on
+  the iPod are marked played at the next sync and make way for newer ones; played episodes
+  Synclassic put there are removed. Podcasts already on the iPod (from iTunes) are recognised
+  and never deleted. The show's artwork goes on with each episode.
+- Podcast plays aren't scrobbled to Last.fm.
+- Files go to `Podcasts/<Show>/` in your music folder.
+
+Terminal: `synclassic podcast search <name>`, `synclassic podcast add <feed address>`,
+`synclassic podcast update`, `synclassic podcast` (list), `synclassic podcast keep <n> <episodes>`,
+`synclassic podcast remove <n>`.
+
 ## Settings
 
 ```bash

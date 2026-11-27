@@ -102,6 +102,9 @@ class EditSession:
         view = self.playlist(playlist_id)
         if view.is_smart:
             raise ManageError(f"“{view.name}” is a smart playlist: its songs come from its rules.")
+        if view.is_podcasts:
+            raise ManageError("The Podcasts playlist is kept by the iPod's podcast sync: subscribe or unsubscribe in "
+                              "Synclassic's Podcasts instead.")
         if playlist_id in self.managed_ids():
             raise ManageError(
                 f"“{view.name}” is kept in sync from Spotify by Synclassic, so changes here would be replaced "

@@ -61,7 +61,7 @@ def test_update_from_window(app, monkeypatch, tmp_path):
     assert window.job is not None and not window.update_action.isEnabled()
     assert wait_until(app, lambda: window.job is None)
 
-    assert window.sidebar_entries() == ["Needs Attention (1)", "Mix (1)"]  # (count) = songs not ready
+    assert window.sidebar_entries() == ["Podcasts", "Needs Attention (1)", "Mix (1)"]  # (count) = songs not ready
     assert "1 downloaded" in window.status_label.text()
     assert (config.load_settings().music_path / "Playlists" / "Mix.m3u8").is_file()
     window.close()
@@ -193,7 +193,7 @@ def test_browse_the_ipod(app, monkeypatch, tmp_path):
 
     window = MainWindow()
     assert wait_until(app, lambda: window.ipod_contents is not None)
-    assert window.sidebar_entries() == ["Kerth's iPod", "Music", "Albums", "Artists", "Genres", "Yeah"]
+    assert window.sidebar_entries() == ["Podcasts", "Kerth's iPod", "Music", "Albums", "Artists", "Genres", "Yeah"]
 
     def select(key):
         for i in range(window.sidebar.topLevelItemCount()):
@@ -442,4 +442,62 @@ def test_double_click_plays_from_the_ipod(app, monkeypatch, tmp_path):
     assert window.play_action.text() == "Play"
     window.player.next()
     assert window.player.current.title == window.ipod_songs.model().index(3, 0).data()
+    window.close()
+
+
+def test_podcasts_from_the_window(app, monkeypatch, tmp_path):
+    import requests
+
+    from synclassic.gui import player as player_module
+    from synclassic.gui import podcast_dialog
+    from synclassic.gui.main_window import PODCASTS, MainWindow
+    from synclassic.podcasts.store import Podcasts
+    from tests.test_player import FakeBackend
+    from tests.test_podcasts import FEED_URL, Internet
+
+    internet = Internet()
+    monkeypatch.setattr(requests, "get", internet.get)
+    monkeypatch.setattr(player_module.Player, "_make_backend", lambda self: FakeBackend())
+
+    # The search dialog finds the show.
+    dialog = podcast_dialog.SubscribeDialog(None, search=lambda text: podcast_dialog.feeds.search(text, internet))
+    dialog.query.setText("sample")
+    dialog.run_search()
+    assert wait_until(app, lambda: dialog.results.count() == 1)
+    dialog._accept_selection()
+    assert dialog.feed_urls == [FEED_URL]
+
+    class Chosen:
+        feed_urls = [FEED_URL]
+
+        def __init__(self, parent):
+            pass
+
+        def exec(self):
+            return True
+
+    monkeypatch.setattr(podcast_dialog, "SubscribeDialog", Chosen)
+    window = MainWindow()
+    window.show()
+    window.subscribe_podcast()
+    assert wait_until(app, lambda: window.job is None)
+    assert window.current_key == PODCASTS and window.stack.currentIndex() == 7
+    assert window.sidebar_entries()[0] == "Podcasts (2)"  # two new episodes downloaded
+    page = window.podcasts_page
+    show = page.topLevelItem(0)
+    assert show.text(0) == "Sample Talk Show" and show.childCount() == 2
+    assert [show.child(i).text(4) for i in range(2)] == ["New", "New"]
+
+    # Play the newest episode to the end: it's marked played (and not scrobbled).
+    from synclassic.gui.podcasts_view import ID_ROLE
+
+    episode_id = show.child(0).data(0, ID_ROLE)
+    window._play_episode(episode_id)
+    assert window.player.current.podcast and window.player.current.title == "Episode 2: Later"
+    window.player.finished_item.emit(window.player.current)
+    assert wait_until(app, lambda: page.topLevelItem(0).child(0).text(4) == "Played")
+    assert Podcasts(window.library).new_count() == 1
+
+    page.apply_search("earlier")
+    assert page.topLevelItem(0).child(0).isHidden() and not page.topLevelItem(0).child(1).isHidden()
     window.close()

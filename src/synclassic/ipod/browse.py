@@ -57,6 +57,7 @@ class Playlist:
     song_ids: list[int]
     smart: bool
     synclassic: bool = False  # made or managed by Synclassic
+    podcasts: bool = False  # the iPod's Podcasts playlist
 
 
 @dataclass
@@ -135,7 +136,8 @@ def read(ipod: IPod) -> Contents:
             name = view.name or name
             continue
         pid = view.chunk.u64(0x1C)
-        playlists.append(Playlist(pid, view.name, [i for i in view.track_ids if i in songs], view.is_smart, pid in managed))
+        playlists.append(Playlist(pid, view.name, [i for i in view.track_ids if i in songs], view.is_smart, pid in managed,
+                                  view.is_podcasts))
 
     covers: dict[int, tuple[str, int, int, int]] = {}
     art_path = ipod.control / "Artwork" / "ArtworkDB"

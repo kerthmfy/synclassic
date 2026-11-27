@@ -24,6 +24,8 @@ class PlayItem:
     length_ms: int = 0
     key: tuple = ()  # ("lib", track id) or ("ipod", song id): which row shows the speaker
     cover: tuple | None = None  # where to find a cover on the iPod (browse.Contents.covers value)
+    podcast: bool = False  # a podcast episode: not scrobbled; marked played when it ends
+    cover_file: pathlib.Path | None = None  # a cover image next to the file (a show's artwork)
 
     @property
     def line(self) -> str:
@@ -42,6 +44,7 @@ class Player(QObject):
     position_changed = Signal(int, int)  # position, duration (ms)
     playing_changed = Signal(bool)
     error = Signal(str)
+    finished_item = Signal(object)  # PlayItem played to the end
 
     REPEAT_MODES = ("off", "all", "one")
 
@@ -170,7 +173,7 @@ class Player(QObject):
     def stop_if_from(self, folder: pathlib.Path) -> None:
         """Stop when playing a file inside `folder` (e.g. an iPod about to be ejected)."""
         item = self.current
-        if item is not None and folder in item.path.parents:
+        if item is not None and (item.path == folder or folder in item.path.parents):
             self.stop()
 
     # --- internals ----------------------------------------------------------------------------
@@ -204,6 +207,8 @@ class Player(QObject):
         threshold = scrobble_threshold_ms(self.backend.duration() or item.length_ms)
         if threshold is not None and self._heard_ms >= threshold:
             self._counted = True
+            if item.podcast:
+                return
             from synclassic import scrobble
 
             try:
@@ -220,6 +225,8 @@ class Player(QObject):
 
         if status == QMediaPlayer.MediaStatus.EndOfMedia:
             self._maybe_count()
+            if self.current is not None:
+                self.finished_item.emit(self.current)
             if self.repeat == "one":
                 self._load()
             else:

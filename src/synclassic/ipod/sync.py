@@ -36,6 +36,7 @@ from synclassic.ipod.check import check
 from synclassic.ipod.device import IPod
 from synclassic.ipod.edit import Editor, NewSong
 from synclassic.library import Library, LibraryPlaylist, LibraryTrack
+from synclassic.podcasts import ipod_sync as podcast_sync
 from synclassic.textnorm import core_title, normalize, split_artists
 
 SUPPORTED = {".m4a": "m4a", ".mp3": "mp3", ".wav": "wav", ".aif": "aif", ".aiff": "aif", ".m4b": "m4a", ".aac": "m4a"}
@@ -112,18 +113,27 @@ class Plan:
     play_counts_pending: bool = False
     art_backfill: list[tuple[int, LibraryTrack]] = field(default_factory=list)  # (dbid, item): added songs without art
     artwork_ok: bool = False  # the iPod's artwork database can be updated
+    podcasts: podcast_sync.PodcastPlan = field(default_factory=podcast_sync.PodcastPlan)
 
     @property
     def has_changes(self) -> bool:
         return bool(
             self.copy or self.remove_songs or self.remove_playlists or self.play_counts_pending
             or any(not p.unchanged and p.action != "wait" for p in self.playlists)
-            or (self.artwork_ok and bool(self.art_backfill))
+            or (self.artwork_ok and bool(self.art_backfill)) or self.podcasts.has_changes
         )
 
     @property
     def fits(self) -> bool:
-        return self.bytes_to_copy + SPACE_MARGIN <= self.free_bytes + self.bytes_to_free
+        return self.total_to_copy + SPACE_MARGIN <= self.free_bytes + self.total_to_free
+
+    @property
+    def total_to_copy(self) -> int:
+        return self.bytes_to_copy + self.podcasts.bytes_to_copy
+
+    @property
+    def total_to_free(self) -> int:
+        return self.bytes_to_free + self.podcasts.bytes_to_free
 
     def summary(self) -> list[str]:
         gb = 1000**3
@@ -160,13 +170,14 @@ class Plan:
             lines.append(f"  Add album art for up to {art} songs" + (f" ({len(self.art_backfill)} added earlier without art)" if self.art_backfill else ""))
         elif art:
             lines.append("  ⚠ Album art can't be added on this iPod (its artwork database couldn't be read safely)")
+        lines += self.podcasts.summary()
         if self.play_counts_pending:
             lines.append("  Save plays, skips and ratings from the iPod")
         for item, reason in self.skipped[:10]:
             lines.append(f"  ⚠ Skipped {item.track.display()}: {reason}")
         if len(self.skipped) > 10:
             lines.append(f"  ⚠ …and {len(self.skipped) - 10} more skipped")
-        lines.append(f"  Free space after sync: {(self.free_bytes + self.bytes_to_free - self.bytes_to_copy) / gb:.1f} GB")
+        lines.append(f"  Free space after sync: {(self.free_bytes + self.total_to_free - self.total_to_copy) / gb:.1f} GB")
         if not self.fits:
             lines.append("  ✗ Not enough space on the iPod.")
         if not self.has_changes:
@@ -242,7 +253,8 @@ def make_plan(library: Library, ipod: IPod, db: itunesdb.Chunk | None = None) ->
         if ipod_id is None:
             same_name = [
                 pid for pid, p in existing.items()
-                if p.name.casefold() == playlist.name.casefold() and not p.is_smart and pid not in owned_ids
+                if p.name.casefold() == playlist.name.casefold() and not p.is_smart and not p.is_podcasts
+                and pid not in owned_ids
             ]
             if same_name:
                 ipod_id, action = same_name[0], "take over"
@@ -299,6 +311,7 @@ def make_plan(library: Library, ipod: IPod, db: itunesdb.Chunk | None = None) ->
             if (value.get("added") and song is not None and item is not None and song.chunk.u8(0xA4) != 1
                     and item.has_file and song.dbid not in {s.dbid for s in plan.remove_songs}):
                 plan.art_backfill.append((song.dbid, item))
+    plan.podcasts = podcast_sync.plan(library, ipod, db, state)
     return plan
 
 
@@ -440,6 +453,9 @@ def apply_plan(
             entries = playcounts.parse_play_counts(counts_file.read_bytes())
             _queue_scrobbles(db, entries, say)
             changed = playcounts.merge_play_counts(db, entries)
+            for song in itunesdb.songs(db):  # played podcast episodes lose their blue dot
+                if song.media_type in (0x04, 0x06) and song.play_count and len(song.chunk.header) > 0xB2:
+                    song.chunk.set_u8(0xB2, 1)
             say(f"Saved plays/ratings for {changed} songs from the iPod.")
         except ValueError:
             say("The iPod's play counts file couldn't be read; it was left alone.")
@@ -474,6 +490,26 @@ def apply_plan(
             location = ":" + target.relative_to(ipod.root).as_posix().replace("/", ":")
             _, dbid = editor.add_song(song_info(target, item, location))
             new_dbids[item.key] = dbid
+        new_episodes: dict[str, int] = {}
+        episode_files: dict[int, pathlib.Path] = {}
+        episodes = plan.podcasts.copy
+        for number, (podcast, episode) in enumerate(episodes, start=1):
+            if should_stop and should_stop():
+                raise SyncError("Stopped before the database was changed. Nothing on the iPod was changed.")
+            source = pathlib.Path(episode.file_path)  # type: ignore[arg-type]
+            target = _new_ipod_path(ipod, source.suffix.lower(), folders)
+            say(f"[{number}/{len(episodes)}] Copying podcast {podcast.title}: {episode.title}")
+            if progress:
+                progress(number, len(episodes), f"{podcast.title}: {episode.title}")
+            tmp = target.with_name(target.name + ".part")
+            shutil.copyfile(source, tmp)
+            if tmp.stat().st_size != source.stat().st_size:
+                raise SyncError(f"Copy of {source.name} didn't verify.")
+            os.replace(tmp, target)
+            copied_files.append(target)
+            dbid = podcast_sync.add_episode(editor, podcast, episode, target, ipod.root)
+            new_episodes[podcast_sync.episode_key(podcast, episode)] = dbid
+            episode_files[dbid] = source
     except BaseException:
         for path in copied_files:  # leave no orphan files behind
             path.unlink(missing_ok=True)
@@ -505,13 +541,13 @@ def apply_plan(
         state["playlists"].pop(key, None)
 
     # 4. Remove songs nothing needs any more.
-    removed = {song.id for song in plan.remove_songs}
+    removed = {song.id for song in plan.remove_songs} | {song.id for song in plan.podcasts.remove}
     editor.remove_songs(removed)
     editor.finish()
 
     # 5. Album art: written before the music database, which then links to it.
     if plan.artwork_ok:
-        _add_artwork(ipod, db, plan, new_dbids, say)
+        _add_artwork(ipod, db, plan, new_dbids, say, episode_files)
 
     # 6. Write the new database, check it, swap it in.
     data = itunesdb.serialize(db)
@@ -519,17 +555,17 @@ def apply_plan(
     if itunesdb.serialize(check_db) != data:
         raise SyncError("The new database didn't verify; nothing was changed. (Copied songs were left in place.)")
     final_songs = itunesdb.songs(check_db)
-    expected = len(songs_before) + len(plan.copy) - len(removed)
+    expected = len(songs_before) + len(plan.copy) + len(new_episodes) - len(removed)
     if len(final_songs) != expected:
         raise SyncError("The new database has the wrong number of songs; nothing was changed.")
     for song in final_songs:
-        if song.dbid in new_dbids.values() and not (ipod.root / song.relative_path).is_file():
+        if (song.dbid in new_dbids.values() or song.dbid in episode_files) and not (ipod.root / song.relative_path).is_file():
             raise SyncError(f"A copied song is missing on the iPod ({song.relative_path}); nothing was changed.")
     say("Writing the iPod's database…")
     _write_atomically(ipod.database_path, data)
 
     # 7. Clean up: old files, merged play counts, On-The-Go files; remember what we manage.
-    for song in plan.remove_songs:
+    for song in [*plan.remove_songs, *plan.podcasts.remove]:
         (ipod.root / song.relative_path).unlink(missing_ok=True)
     if counts_file is not None and counts_file.is_file():
         counts_file.unlink()
@@ -542,6 +578,7 @@ def apply_plan(
         state["tracks"][key] = {"dbid": f"{dbid:016x}", "added": True}
     removed_dbids = {song.dbid for song in plan.remove_songs}
     state["tracks"] = {k: v for k, v in state["tracks"].items() if int(v["dbid"], 16) not in removed_dbids}
+    podcast_sync.remember(state, plan.podcasts, new_episodes)
     state["last_sync"] = datetime.datetime.now().isoformat(timespec="seconds")
     save_state(ipod, state)
     if hasattr(os, "sync"):
@@ -550,14 +587,16 @@ def apply_plan(
     return saved
 
 
-def _add_artwork(ipod: IPod, db: itunesdb.Chunk, plan: Plan, new_dbids: dict[str, int], say: Say) -> None:
+def _add_artwork(ipod: IPod, db: itunesdb.Chunk, plan: Plan, new_dbids: dict[str, int], say: Say,
+                 episode_files: dict[int, pathlib.Path] | None = None) -> None:
     from synclassic.ipod import artwork as art
 
     jobs: list[tuple[int, pathlib.Path]] = [
         (new_dbids[item.key], pathlib.Path(item.file_path)) for item in plan.copy if item.key in new_dbids  # type: ignore[arg-type]
     ]
     jobs += [(dbid, pathlib.Path(item.file_path)) for dbid, item in plan.art_backfill]  # type: ignore[arg-type]
-    removed_dbids = {song.dbid for song in plan.remove_songs}
+    jobs += list((episode_files or {}).items())
+    removed_dbids = {song.dbid for song in plan.remove_songs} | {song.dbid for song in plan.podcasts.remove}
     if not jobs and not removed_dbids:
         return
     try:
@@ -566,6 +605,8 @@ def _add_artwork(ipod: IPod, db: itunesdb.Chunk, plan: Plan, new_dbids: dict[str
         links = []
         for dbid, path in jobs:
             cover = art.embedded_cover(path)
+            if not cover and episode_files and dbid in episode_files and (path.parent / "cover.jpg").is_file():
+                cover = (path.parent / "cover.jpg").read_bytes()  # the show's artwork
             if cover and dbid in mhits:
                 try:
                     links.append((mhits[dbid], writer.add(dbid, cover), len(cover)))

@@ -42,6 +42,11 @@ STATUS_COLORS = {
     "not found": ("#ee6a6a", "#c63a3a"),
     "failed": ("#ee6a6a", "#c63a3a"),
     "file missing": ("#ee6a6a", "#c63a3a"),
+    # podcast episodes
+    "new": ("#4f93e8", "#2b67c2"),
+    "played": ("#b5b5b5", "#8c8c8c"),
+    "get": ("#a7b4c6", "#7d8ca3"),
+    "downloading": ("#6fa8ea", "#3b78c9"),
 }
 
 

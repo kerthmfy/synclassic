@@ -39,6 +39,7 @@ from synclassic.gui.picker_dialog import fmt_time, open_picker
 from synclassic.gui.settings_dialog import SettingsDialog
 from synclassic.gui.ipod_views import AlbumsPage, BrowserPage, SongTable
 from synclassic.gui.player import Player, PlayItem
+from synclassic.gui.podcasts_view import PodcastsPage
 from synclassic.gui.widgets import (
     COUNT_ROLE,
     DEPTH_ROLE,
@@ -62,6 +63,8 @@ from synclassic.update import add_inputs, download_missing, finalize, refresh_pl
 
 ATTENTION = "__attention__"
 IPOD = "__ipod__"
+PODCASTS = "__podcasts__"
+SPECIAL = (None, ATTENTION, IPOD, PODCASTS)  # sources that aren't Synclassic playlists
 ATTENTION_STATUSES = ("review", "unmatched", "failed")
 
 STATUS = {
@@ -114,6 +117,9 @@ class MainWindow(QMainWindow):
         self.player.position_changed.connect(self._position_changed)
         self.player.playing_changed.connect(self._playing_changed)
         self.player.error.connect(self.say)
+        self.player.finished_item.connect(self._finished_playing)
+        self._downloading_episodes: set[int] = set()
+        self._cover_cache: dict[int, tuple[float, object]] = {}
 
         self._build_actions()
         self._build_menus()
@@ -153,6 +159,10 @@ class MainWindow(QMainWindow):
             return act
 
         self.add_action = action("Add Playlists…", self.add_playlists, QKeySequence.StandardKey.New)
+        self.subscribe_action = action("Subscribe to Podcast…", self.subscribe_podcast, None,
+                                       "Find a podcast, or paste its feed address")
+        self.podcasts_update_action = action("Update Podcasts", self.update_podcasts, None,
+                                             "Check every podcast for new episodes and download them")
         self.update_action = action("Update All", lambda: self.start_update(None), QKeySequence("Ctrl+R"),
                                     "Check every playlist for new songs and download them")
         self.stop_action = action("Stop", self.stop_job, QKeySequence("Ctrl+."))
@@ -185,7 +195,7 @@ class MainWindow(QMainWindow):
     def _build_menus(self) -> None:
         bar = self.menuBar()
         file_menu = bar.addMenu("File")
-        for act in (self.add_action, None, self.update_action, self.stop_action, None, self.folder_action, None,
+        for act in (self.add_action, self.subscribe_action, None, self.update_action, self.podcasts_update_action, self.stop_action, None, self.folder_action, None,
                     self.settings_action):
             file_menu.addSeparator() if act is None else file_menu.addAction(act)
         ipod_menu = bar.addMenu("iPod")
@@ -351,6 +361,13 @@ class MainWindow(QMainWindow):
         self.update_one = QPushButton("Update Playlist")
         self.update_one.clicked.connect(self._update_current)
         strip.addWidget(self.update_one)
+        self.subscribe_button = QPushButton("Subscribe…")
+        self.subscribe_button.clicked.connect(self.subscribe_action.trigger)
+        self.podcasts_button = QPushButton("Update Podcasts")
+        self.podcasts_button.clicked.connect(self.podcasts_update_action.trigger)
+        for button in (self.subscribe_button, self.podcasts_button):
+            button.hide()
+            strip.addWidget(button)
         right_layout.addWidget(self.header_strip)
         self.note = QLabel()
         self.note.setWordWrap(True)
@@ -389,6 +406,11 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.artists_page)  # 5
         self.genres_page = BrowserPage("Genre", "genre")
         self.stack.addWidget(self.genres_page)  # 6
+        self.podcasts_page = PodcastsPage()
+        self.podcasts_page.episode_activated.connect(self._play_episode)
+        self.podcasts_page.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.podcasts_page.customContextMenuRequested.connect(self._podcasts_menu)
+        self.stack.addWidget(self.podcasts_page)  # 7
         for table in self._ipod_tables():
             table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             table.customContextMenuRequested.connect(lambda pos, t=table: self._ipod_song_menu(t, pos))
@@ -602,8 +624,10 @@ class MainWindow(QMainWindow):
 
         self.sidebar.blockSignals(True)
         self.sidebar.clear()
+        self._add_section("Library")
+        self._add_source("Podcasts", PODCASTS, "podcasts", self._podcasts().new_count() or None,
+                         "Podcasts you subscribe to (the number: new episodes)")
         if attention:
-            self._add_section("Library")
             self._add_source("Needs Attention", ATTENTION, "attention", len(attention),
                              "Songs that weren't found or might be the wrong version")
         if playlists or self.ipod is None:
@@ -684,7 +708,7 @@ class MainWindow(QMainWindow):
         self._show_current()
 
     def _current_playlist(self) -> LibraryPlaylist | None:
-        if self.current_key in (None, ATTENTION, IPOD):
+        if self.current_key in SPECIAL:
             return None
         return next((p for p in self.library.playlists() if p.id == self.current_key), None)
 
@@ -701,8 +725,13 @@ class MainWindow(QMainWindow):
             self._show_ipod()
             return
         if isinstance(self.current_key, tuple):
+            self._show_podcast_buttons(False)
             self._show_ipod_view(self.current_key)
             return
+        if self.current_key == PODCASTS:
+            self._show_podcasts()
+            return
+        self._show_podcast_buttons(False)
         self.header_strip.show()
         self.stack.setCurrentIndex(0)
         if self.current_key == ATTENTION:
@@ -1120,7 +1149,8 @@ class MainWindow(QMainWindow):
             if n == row:
                 start = len(items)
             items.append(PlayItem(ipod.root / song.path, song.title, song.artist, song.album, song.album_artist,
-                                  song.length_ms, ("ipod", song.id), contents.covers.get(song.dbid)))
+                                  song.length_ms, ("ipod", song.id), contents.covers.get(song.dbid),
+                                  podcast=song.kind == "podcast"))
         self.player.play_list(items, start)
 
     def _set_shuffle(self, on: bool) -> None:
@@ -1186,6 +1216,10 @@ class MainWindow(QMainWindow):
             data = art.embedded_cover(item.path)
             if data:
                 image = QImage.fromData(data)
+                if not image.isNull():
+                    return image
+            if item.cover_file is not None and item.cover_file.is_file():
+                image = QImage(str(item.cover_file))
                 if not image.isNull():
                     return image
             if item.cover and ipod is not None:
@@ -1433,11 +1467,278 @@ class MainWindow(QMainWindow):
             self.albums_page.songs.proxy.set_query(text)
         elif index in (5, 6):
             (self.artists_page if index == 5 else self.genres_page).filter(text)
+        elif index == 7:
+            self.podcasts_page.apply_search(text)
         words = self.search.text().casefold().split()
         for i in range(self.table.topLevelItemCount()):
             row = self.table.topLevelItem(i)
             haystack = " ".join(row.text(c) for c in (1, 2, 3)).casefold()
             row.setHidden(bool(words) and not all(w in haystack for w in words))
+
+    # --- podcasts --------------------------------------------------------------------------------
+
+    def _podcasts(self):
+        from synclassic.podcasts.store import Podcasts
+
+        return Podcasts(self.library)
+
+    def _show_podcast_buttons(self, on: bool) -> None:
+        self.subscribe_button.setVisible(on)
+        self.podcasts_button.setVisible(on)
+
+    def _podcast_cover(self, store, podcast):
+        from PySide6.QtGui import QPixmap
+
+        path = store.cover_path(podcast, load_settings().music_path)
+        try:
+            stamp = path.stat().st_mtime
+        except OSError:
+            return None
+        cached = self._cover_cache.get(podcast.id)
+        if cached and cached[0] == stamp:
+            return cached[1]
+        pixmap = QPixmap(str(path))
+        if pixmap.isNull():
+            return None
+        pixmap = pixmap.scaled(32, 32, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        pixmap.setDevicePixelRatio(2)
+        self._cover_cache[podcast.id] = (stamp, pixmap)
+        return pixmap
+
+    def _show_podcasts(self) -> None:
+        store = self._podcasts()
+        shows, covers = [], {}
+        for podcast in store.podcasts():
+            episodes = store.episodes(podcast.id)
+            shows.append((podcast, episodes, {e.id for e in store.wanted(podcast)}))
+            cover = self._podcast_cover(store, podcast)
+            if cover is not None:
+                covers[podcast.id] = cover
+        self.header_strip.show()
+        self.note.hide()
+        self.update_one.hide()
+        self._show_podcast_buttons(True)
+        self.podcasts_button.setEnabled(self.job is None)
+        self.title.setText("Podcasts")
+        if shows:
+            new = store.new_count()
+            self.subtitle.setText(
+                f"{len(shows)} podcast{'s' if len(shows) != 1 else ''} · {new} new episode{'s' if new != 1 else ''} · "
+                "the newest unplayed episodes of each go on your iPod when you sync")
+        else:
+            self.subtitle.setText("No podcasts yet. Press Subscribe… to find one.")
+        self.podcasts_page.fill(shows, covers, self._downloading_episodes)
+        self.stack.setCurrentIndex(7)
+        self._apply_search()
+
+    def subscribe_podcast(self) -> None:
+        from synclassic.gui.podcast_dialog import SubscribeDialog
+
+        dialog = SubscribeDialog(self)
+        if not dialog.exec() or not dialog.feed_urls:
+            return
+        urls = dialog.feed_urls
+        path = self.library_path
+        if self.job is not None:
+            QMessageBox.information(self, "Busy", "Wait for the current update to finish, or press Stop.")
+            return
+
+        def work(task: Task):
+            from synclassic.podcasts.store import Podcasts
+
+            library = Library(path)
+            try:
+                store = Podcasts(library)
+                titles = []
+                for url in urls:
+                    task.progress.emit(0, 0, "Reading the podcast…")
+                    try:
+                        podcast = store.subscribe(url)
+                    except Exception as error:  # a bad feed shouldn't stop the others
+                        task.say(f"Couldn't subscribe to {url}: {error}")
+                        continue
+                    titles.append(podcast.title)
+                    task.say(f"Subscribed to {podcast.title}")
+                    task.changed.emit()
+                if titles:
+                    _update_podcasts(library, task)
+                return {"summary": f"Subscribed to {', '.join(titles)}." if titles else "Couldn't subscribe."}
+            finally:
+                library.close()
+
+        self.current_key = PODCASTS
+        self._run_job("Subscribing…", work)
+
+    def update_podcasts(self, podcast_ids: list[int] | None = None) -> None:
+        if self.job is not None:
+            return
+        path = self.library_path
+
+        def work(task: Task):
+            library = Library(path)
+            try:
+                return {"summary": _update_podcasts(library, task, podcast_ids)}
+            finally:
+                library.close()
+
+        self._run_job("Checking podcasts…", work)
+
+    def download_episodes(self, episode_ids: list[int]) -> None:
+        if self.job is not None or not episode_ids:
+            return
+        path = self.library_path
+        music = load_settings().music_path
+        self._downloading_episodes = set(episode_ids)
+
+        def work(task: Task):
+            from synclassic.podcasts.feed import FeedError
+            from synclassic.podcasts.store import Podcasts
+
+            library = Library(path)
+            try:
+                store = Podcasts(library)
+                done = 0
+                for number, episode_id in enumerate(episode_ids, start=1):
+                    episode = store.episode(episode_id)
+                    if task.should_stop():
+                        break
+                    if episode is None or episode.downloaded:
+                        continue
+                    task.progress.emit(number, len(episode_ids), episode.title)
+                    try:
+                        store.download(episode, music, should_stop=task.should_stop)
+                        done += 1
+                    except FeedError as error:
+                        task.say(f"{episode.title}: {error}")
+                    task.changed.emit()
+                return {"summary": f"Downloaded {done} episode{'s' if done != 1 else ''}."}
+            finally:
+                library.close()
+
+        def finished(result):
+            self._downloading_episodes = set()
+
+        self._run_job("Downloading episodes…", work, finished)
+
+    def _episode_item(self, store, episode) -> PlayItem | None:
+        podcast = store.podcast(episode.podcast_id)
+        if podcast is None or not episode.downloaded:
+            return None
+        path = pathlib.Path(episode.file_path)
+        return PlayItem(path, episode.title, podcast.author or podcast.title, podcast.title, podcast.author,
+                        episode.duration_s * 1000, ("pod", episode.id), podcast=True,
+                        cover_file=path.parent / "cover.jpg")
+
+    def _play_episode(self, episode_id: int) -> None:
+        store = self._podcasts()
+        episode = store.episode(episode_id)
+        if episode is None:
+            return
+        if not episode.downloaded:
+            self.download_episodes([episode_id])
+            return
+        items = []
+        start = 0
+        for other_id in self.podcasts_page.episode_ids_in_view(episode.podcast_id):
+            other = store.episode(other_id)
+            item = self._episode_item(store, other) if other is not None else None
+            if item is None:
+                continue
+            if other_id == episode_id:
+                start = len(items)
+            items.append(item)
+        self.player.play_list(items, start)
+
+    def _finished_playing(self, item) -> None:
+        if item.key and item.key[0] == "pod":
+            self._podcasts().set_played(item.key[1], True)
+            self.schedule_refresh()
+
+    def _podcasts_menu(self, position) -> None:
+        from synclassic.podcasts.store import Podcasts
+
+        store: Podcasts = self._podcasts()
+        page = self.podcasts_page
+        episodes = [e for e in (store.episode(i) for i in page.selected("episode")) if e is not None]
+        shows = [p for p in (store.podcast(i) for i in page.selected("show")) if p is not None]
+        if not episodes and not shows:
+            menu = QMenu(self)
+            menu.addAction(self.subscribe_action)
+            menu.addAction(self.podcasts_update_action)
+            menu.exec(page.viewport().mapToGlobal(position))
+            return
+        menu = QMenu(self)
+        actions = {}
+        if episodes:
+            actions["play"] = menu.addAction("Play")
+            actions["play"].setEnabled(any(e.downloaded for e in episodes))
+            actions["download"] = menu.addAction("Download")
+            actions["download"].setEnabled(self.job is None and any(not e.downloaded for e in episodes))
+            menu.addSeparator()
+            actions["played"] = menu.addAction("Mark as Played")
+            actions["unplayed"] = menu.addAction("Mark as New")
+            menu.addSeparator()
+            actions["remove"] = menu.addAction("Remove Download")
+            actions["remove"].setEnabled(any(e.downloaded for e in episodes))
+            actions["reveal"] = menu.addAction("Show in Finder")
+            actions["reveal"].setEnabled(len(episodes) == 1 and episodes[0].downloaded)
+        if shows:
+            if episodes:
+                menu.addSeparator()
+            actions["refresh"] = menu.addAction("Update Podcast")
+            actions["refresh"].setEnabled(self.job is None)
+            keep_menu = menu.addMenu("Keep on iPod")
+            current = shows[0].keep_on_ipod if len(shows) == 1 else None
+            for count, label in ((1, "Newest episode"), (3, "3 newest unplayed"), (5, "5 newest unplayed"),
+                                 (10, "10 newest unplayed"), (0, "None (don't put on iPod)")):
+                act = keep_menu.addAction(label)
+                act.setCheckable(True)
+                act.setChecked(current == count)
+                actions[f"keep{count}"] = act
+            actions["show_folder"] = menu.addAction("Show in Finder")
+            menu.addSeparator()
+            actions["unsubscribe"] = menu.addAction("Unsubscribe…")
+        chosen = menu.exec(page.viewport().mapToGlobal(position))
+        if chosen is None:
+            return
+        name = next((k for k, v in actions.items() if v is chosen), "")
+        music = load_settings().music_path
+        if name == "play":
+            first = next(e for e in episodes if e.downloaded)
+            self._play_episode(first.id)
+        elif name == "download":
+            self.download_episodes([e.id for e in episodes if not e.downloaded])
+        elif name in ("played", "unplayed"):
+            for episode in episodes:
+                store.set_played(episode.id, name == "played")
+            self.refresh()
+        elif name == "remove":
+            for episode in episodes:
+                if episode.downloaded:
+                    self.player.stop_if_from(pathlib.Path(episode.file_path))
+                    store.remove_download(episode.id)
+            self.refresh()
+        elif name == "reveal":
+            reveal_in_finder(pathlib.Path(episodes[0].file_path))
+        elif name == "refresh":
+            self.update_podcasts([p.id for p in shows])
+        elif name.startswith("keep"):
+            for podcast in shows:
+                store.set_keep(podcast.id, int(name[4:]))
+            self.refresh()
+        elif name == "show_folder":
+            reveal_in_finder(store.show_folder(shows[0], music))
+        elif name == "unsubscribe":
+            names = ", ".join(f"“{p.title}”" for p in shows)
+            answer = QMessageBox.question(
+                self, "Unsubscribe",
+                f"Unsubscribe from {names}? Its downloaded episodes are deleted from your Mac. Episodes Synclassic "
+                "put on your iPod come off at the next sync.")
+            if answer == QMessageBox.StandardButton.Yes:
+                for podcast in shows:
+                    self.player.stop_if_from(store.show_folder(podcast, music))
+                    store.unsubscribe(podcast.id)
+                self.refresh()
 
     # --- iPod ------------------------------------------------------------------------------------
 
@@ -1582,10 +1883,16 @@ class MainWindow(QMainWindow):
         row = self.sidebar.itemAt(position)
         if row is not None and not row.data(0, SECTION_ROLE):
             key = row.data(0, Qt.ItemDataRole.UserRole)
+            if key == PODCASTS:
+                menu = QMenu(self)
+                menu.addAction(self.podcasts_update_action)
+                menu.addAction(self.subscribe_action)
+                menu.exec(self.sidebar.viewport().mapToGlobal(position))
+                return
             if key == IPOD or isinstance(key, tuple):
                 self._ipod_source_menu(key, self.sidebar.viewport().mapToGlobal(position))
                 return
-        if not row or row.data(0, SECTION_ROLE) or row.data(0, Qt.ItemDataRole.UserRole) in (ATTENTION, IPOD):
+        if not row or row.data(0, SECTION_ROLE) or row.data(0, Qt.ItemDataRole.UserRole) in SPECIAL:
             return
         playlist = next((p for p in self.library.playlists() if p.id == row.data(0, Qt.ItemDataRole.UserRole)), None)
         if not playlist:
@@ -1628,7 +1935,7 @@ class MainWindow(QMainWindow):
                 self.refresh()
 
     def _playlist_ids_for_view(self) -> list[int] | None:
-        return None if self.current_key in (None, ATTENTION, IPOD) else [self.current_key]
+        return None if self.current_key in SPECIAL else [self.current_key]
 
     # --- actions ------------------------------------------------------------------------------
 
@@ -1820,7 +2127,7 @@ class MainWindow(QMainWindow):
         self._run_job("Adding…", work, done)
 
     def _update_current(self) -> None:
-        if self.current_key not in (None, ATTENTION, IPOD):
+        if self.current_key not in SPECIAL:
             self.start_update([self.current_key])
 
     def start_update(
@@ -1834,6 +2141,8 @@ class MainWindow(QMainWindow):
         def work(task: Task):
             library = Library(path)
             try:
+                if playlist_ids is None and refresh_sources:  # Update All: podcasts too
+                    _update_podcasts(library, task)
                 playlists = [p for p in library.playlists() if playlist_ids is None or p.id in playlist_ids]
                 if refresh_sources:
                     client = _spotify_client(task)
@@ -1899,7 +2208,8 @@ class MainWindow(QMainWindow):
         self.lcd.secondary.setText("")
         self.progress.setRange(0, 0)
         self.progress.show()
-        for action in (self.update_action, self.add_action, self.sync_action, self.update_sync_action):
+        for action in (self.update_action, self.add_action, self.sync_action, self.update_sync_action,
+                       self.podcasts_update_action):
             action.setEnabled(False)
         self.update_one.setEnabled(False)
         self.stop_action.setEnabled(True)
@@ -1908,7 +2218,8 @@ class MainWindow(QMainWindow):
         self.job = None
         self.progress.hide()
         self.status_label.setText(text)
-        for action in (self.update_action, self.add_action, self.sync_action, self.update_sync_action):
+        for action in (self.update_action, self.add_action, self.sync_action, self.update_sync_action,
+                       self.podcasts_update_action):
             action.setEnabled(True)
         self.update_one.setEnabled(True)
         self.stop_action.setEnabled(False)
@@ -1958,6 +2269,28 @@ class MainWindow(QMainWindow):
         self.player.stop()
         self.library.close()
         event.accept()
+
+
+def _update_podcasts(library: Library, task: Task, podcast_ids: list[int] | None = None) -> str:
+    """Refresh feeds and download the episodes each show keeps. Returns a one-line summary."""
+    from synclassic.podcasts.store import Podcasts
+
+    store = Podcasts(library)
+    if not store.podcasts():
+        return "No podcasts yet."
+
+    def progress(number, total, text):
+        task.progress.emit(number, total, text)
+        task.changed.emit()
+
+    task.progress.emit(0, 0, "Checking podcasts…")
+    new, downloaded = store.update_all(load_settings().music_path, task.say, should_stop=task.should_stop,
+                                       progress=progress, only=podcast_ids)
+    task.changed.emit()
+    summary = (f"Podcasts: {new} new episode{'s' if new != 1 else ''}, {downloaded} downloaded."
+               if new or downloaded else "Podcasts are up to date.")
+    task.say(summary)
+    return summary
 
 
 def _spotify_client(task: Task) -> SpotifyClient | None:

@@ -490,6 +490,76 @@ def cmd_lastfm(args) -> int:
     return 0
 
 
+def cmd_podcast(args) -> int:
+    from synclassic.podcasts import feed as feeds
+    from synclassic.podcasts.store import Podcasts
+
+    if args.action == "search":
+        try:
+            results = feeds.search(" ".join(args.words))
+        except feeds.FeedError as error:
+            say(str(error))
+            return 1
+        for result in results:
+            say(f"{result.title} — {result.author} ({result.episodes} episodes)\n    {result.feed_url}")
+        if not results:
+            say("Nothing found.")
+        return 0
+    library = open_library()
+    try:
+        store = Podcasts(library)
+        if args.action == "add":
+            for url in args.words:
+                try:
+                    podcast = store.subscribe(url)
+                except feeds.FeedError as error:
+                    say(f"{url}: {error}")
+                    return 1
+                say(f"Subscribed to {podcast.title}.")
+            return 0
+        if args.action == "update":
+            new, downloaded = store.update_all(load_settings().music_path, say)
+            say(f"{new} new episodes, {downloaded} downloaded.")
+            return 0
+        if args.action == "keep":
+            if len(args.words) != 2 or not args.words[1].isdigit():
+                say("Usage: synclassic podcast keep <number from the list> <episodes>")
+                return 1
+            podcast = _podcast_by_number(store, args.words[0])
+            if podcast is None:
+                return 1
+            store.set_keep(podcast.id, int(args.words[1]))
+            say(f"{podcast.title}: keeps the {args.words[1]} newest unplayed episodes on the iPod.")
+            return 0
+        if args.action == "remove":
+            for number in args.words:
+                podcast = _podcast_by_number(store, number)
+                if podcast is None:
+                    return 1
+                store.unsubscribe(podcast.id)
+                say(f"Unsubscribed from {podcast.title}.")
+            return 0
+        podcasts = store.podcasts()
+        for number, podcast in enumerate(podcasts, start=1):
+            episodes = store.episodes(podcast.id)
+            ready = sum(1 for e in episodes if e.downloaded and not e.played)
+            say(f"{number}. {podcast.title} — {len(episodes)} episodes, {ready} new on this Mac, "
+                f"keeps {podcast.keep_on_ipod} on the iPod")
+        if not podcasts:
+            say("No podcasts yet: synclassic podcast search <name>, then synclassic podcast add <feed address>.")
+        return 0
+    finally:
+        library.close()
+
+
+def _podcast_by_number(store, number: str):
+    podcasts = store.podcasts()
+    if not number.isdigit() or not 1 <= int(number) <= len(podcasts):
+        say(f"No podcast number {number}; see synclassic podcast list.")
+        return None
+    return podcasts[int(number) - 1]
+
+
 def cmd_install_app(args) -> int:
     from synclassic.macapp import build_app, default_destination
 
@@ -609,6 +679,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--key", help="login: your Last.fm API key")
     p.add_argument("--secret", help="login: your Last.fm shared secret")
     p.set_defaults(func=cmd_lastfm)
+
+    p = sub.add_parser("podcast", help="podcasts: list (default), search, add <feed>, update, keep <n> <episodes>, remove <n>")
+    p.add_argument("action", nargs="?", default="list", choices=["list", "search", "add", "update", "keep", "remove"])
+    p.add_argument("words", nargs="*", help="search words, feed addresses, or numbers from the list")
+    p.set_defaults(func=cmd_podcast)
 
     p = sub.add_parser("install-app", help="make a double-clickable Synclassic.app (macOS)")
     p.add_argument("--dest", help="folder to put it in (default ~/Applications)")

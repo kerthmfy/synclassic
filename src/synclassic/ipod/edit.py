@@ -62,6 +62,18 @@ class NewSong:
     disc_number: int = 0
     year: int = 0
     explicit: bool = False
+    # Podcast episodes (shown in the iPod's Podcasts menu):
+    podcast: bool = False
+    video: bool = False
+    enclosure_url: str = ""
+    rss_url: str = ""
+    description: str = ""
+    category: str = ""
+    released_unix: int = 0
+
+
+PODCAST_PLAYLIST_FLAG = 0x01  # mhyp +0x2A bit 0: the Podcasts playlist
+GROUP_HEADER = 0x100  # mhip +0x10 (u16): a show's header in the grouped (section 3) Podcasts playlist
 
 
 def _blank(tag: bytes, length: int) -> bytearray:
@@ -193,7 +205,16 @@ class Editor:
             if template is None or template.u64(0xA8) == template.u64(0x70):
                 mhit.set_u64(0xA8, dbid)
         if length >= 0xD4:
-            mhit.set_u32(0xD0, 1)  # audio
+            mhit.set_u32(0xD0, (0x06 if song.video else 0x04) if song.podcast else 1)  # podcast / audio
+        if song.podcast:
+            if length >= 0xA8:
+                mhit.set_u8(0xA5, 1)  # skip when shuffling
+                mhit.set_u8(0xA6, 1)  # remember the playback position
+                mhit.set_u8(0xA7, 1)  # podcast "now playing" screen
+            if length >= 0xB3:
+                mhit.set_u8(0xB2, 2)  # unplayed: the blue dot
+            if length >= 0x90 and song.released_unix:
+                mhit.set_u32(0x8C, (song.released_unix + MAC_EPOCH_OFFSET) & 0xFFFFFFFF)
         if length >= 0x130 and template is not None and template.u32(0x12C) == template.u32(0x24):
             mhit.set_u32(0x12C, song.size)
         if length >= 0x12C and template is not None and template.u64(0x124) == template.u64(0x70):
@@ -206,6 +227,15 @@ class Editor:
         ):
             if text:
                 mhit.children.append(_string_mhod_like(kind, text))
+        if song.podcast:
+            if song.description:
+                mhit.children.append(_string_mhod_like(itunesdb.DESCRIPTION, song.description[:500]))
+            if song.category:
+                mhit.children.append(_string_mhod_like(itunesdb.CATEGORY, song.category))
+            if song.enclosure_url:
+                mhit.children.append(itunesdb.make_url_mhod(itunesdb.ENCLOSURE_URL, song.enclosure_url))
+            if song.rss_url:
+                mhit.children.append(itunesdb.make_url_mhod(itunesdb.RSS_URL, song.rss_url))
         self.songs_list.children.append(mhit)
         for kind in self._playlist_sections():
             master = self.master(kind)
@@ -225,6 +255,8 @@ class Editor:
                 before = len(mhyp.children)
                 mhyp.children = [c for c in mhyp.children if not (c.tag == b"mhip" and c.u32(0x18) in song_ids)]
                 if len(mhyp.children) != before:
+                    if len(mhyp.header) > 0x2B and mhyp.u16(0x2A) & PODCAST_PLAYLIST_FLAG:
+                        self._drop_empty_groups(mhyp)
                     self._renumber(mhyp)
 
     # Editable song fields: text fields by text-field type, numbers by header offset.
@@ -282,10 +314,80 @@ class Editor:
         return mhip
 
     def _renumber(self, mhyp: Chunk) -> None:
-        for position, mhip in enumerate(mhyp.find(b"mhip")):
+        entries = [m for m in mhyp.find(b"mhip") if m.u16(0x10) != GROUP_HEADER]
+        for position, mhip in enumerate(entries):
             for child in mhip.children:
                 if child.tag == b"mhod" and child.mhod_type == 100 and len(child.body) >= 4:
                     child.body = struct.pack("<I", position) + child.body[4:]
+
+    # --- the Podcasts playlist -------------------------------------------------------------------
+
+    def podcast_playlists(self) -> dict[int, Chunk]:
+        """The Podcasts playlist in each playlist section (section -> mhyp)."""
+        found = {}
+        for kind in self._playlist_sections():
+            for mhyp in self._playlist_list(kind).find(b"mhyp"):
+                if mhyp.u8(0x14) != 1 and len(mhyp.header) > 0x2B and mhyp.u16(0x2A) & PODCAST_PLAYLIST_FLAG:
+                    found[kind] = mhyp
+                    break
+        return found
+
+    def ensure_podcast_playlist(self) -> dict[int, Chunk]:
+        found = self.podcast_playlists()
+        if len(found) == len(self._playlist_sections()):
+            return found
+        playlist_id = next((m.u64(0x1C) for m in found.values()), None)
+        if playlist_id is None:
+            playlist_id = self.create_playlist("Podcasts")
+            for mhyp in self.playlists(playlist_id):
+                mhyp.set_u16(0x2A, PODCAST_PLAYLIST_FLAG)
+        else:  # missing from one section: copy it there
+            source = next(iter(found.values()))
+            for kind in self._playlist_sections():
+                if kind not in found:
+                    copy_ = copy.deepcopy(source)
+                    copy_.children = [c for c in copy_.children if c.tag != b"mhip"]
+                    self._playlist_list(kind).children.append(copy_)
+        return self.podcast_playlists()
+
+    def add_podcast_episode(self, song_id: int, dbid: int, show: str) -> None:
+        """Put an episode in the Podcasts playlist: flat in section 2, under its show's header in section 3."""
+        for kind, mhyp in self.ensure_podcast_playlist().items():
+            entries = mhyp.find(b"mhip")
+            if kind != 3:  # section 2: a flat list; section 3 (what the iPod shows): grouped by show
+                mhyp.children.append(self._make_mhip(song_id, dbid, len(entries)))
+                self._renumber(mhyp)
+                continue
+            header = next((m for m in entries if m.u16(0x10) == GROUP_HEADER
+                           and itunesdb.texts(m).get(itunesdb.TITLE, "").casefold() == show.casefold()), None)
+            if header is None:
+                header = self._make_group_header(show)
+                mhyp.children.append(header)
+                position = len(mhyp.children)
+            else:
+                group = header.u32(0x14)
+                members = [i for i, c in enumerate(mhyp.children) if c is header or (c.tag == b"mhip" and c.u32(0x20) == group)]
+                position = members[-1] + 1
+            episode = self._make_mhip(song_id, dbid, 0)
+            episode.set_u32(0x20, header.u32(0x14))
+            mhyp.children.insert(position, episode)
+            self._renumber(mhyp)
+
+    def _make_group_header(self, show: str) -> Chunk:
+        template = self.mhip_template
+        length = len(template.header) if template is not None else DEFAULT_MHIP_LENGTH
+        header = Chunk(b"mhip", _blank(b"mhip", length))
+        header.set_u16(0x10, GROUP_HEADER)
+        header.set_u32(0x14, self.next_group_id)
+        self.next_group_id += 1
+        header.set_u32(0x1C, mac_time())
+        header.children = [_string_mhod_like(itunesdb.TITLE, show or "Podcast")]
+        return header
+
+    def _drop_empty_groups(self, mhyp: Chunk) -> None:
+        used = {c.u32(0x20) for c in mhyp.children if c.tag == b"mhip" and c.u16(0x10) != GROUP_HEADER}
+        mhyp.children = [c for c in mhyp.children
+                         if not (c.tag == b"mhip" and c.u16(0x10) == GROUP_HEADER and c.u32(0x14) not in used)]
 
     def create_playlist(self, name: str) -> int:
         playlist_id = self._unique64(self.used_playlist_ids)

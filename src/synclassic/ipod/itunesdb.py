@@ -204,6 +204,18 @@ def make_string_mhod(kind: int, text: str) -> Chunk:
     return Chunk(b"mhod", header, body=body)
 
 
+ENCLOSURE_URL, RSS_URL, DESCRIPTION, CATEGORY = 15, 16, 14, 9
+
+
+def make_url_mhod(kind: int, url: str) -> Chunk:
+    """Podcast URL fields (types 15/16): plain UTF-8 right after the header, as iTunes writes them."""
+    body = url.encode("utf-8")
+    header = bytearray(24)
+    header[0:4] = b"mhod"
+    struct.pack_into("<III", header, 4, 24, 24 + len(body), kind)
+    return Chunk(b"mhod", header, body=body)
+
+
 def set_text(owner: Chunk, kind: int, text: str | None) -> None:
     """Set (or remove, with None/"") one text field of a song or playlist."""
     owner.children = [c for c in owner.children if not (c.tag == b"mhod" and c.mhod_type == kind)]
@@ -265,6 +277,7 @@ class PlaylistView:
     is_podcast_section: bool
     track_ids: list[int]
     is_smart: bool
+    is_podcasts: bool = False  # the iPod's Podcasts playlist
 
 
 def section(db: Chunk, kind: int) -> Chunk | None:
@@ -318,8 +331,9 @@ def playlists(db: Chunk, kind: int = 2) -> list[PlaylistView]:
                 name=text.get(TITLE, ""),
                 is_master=mhyp.u8(0x14) == 1,
                 is_podcast_section=kind == 3,
-                track_ids=[mhip.u32(0x18) for mhip in mhyp.find(b"mhip")],
+                track_ids=[mhip.u32(0x18) for mhip in mhyp.find(b"mhip") if mhip.u16(0x10) != 0x100],  # not show headers
                 is_smart=smart,
+                is_podcasts=len(mhyp.header) > 0x2B and bool(mhyp.u16(0x2A) & 0x01),
             )
         )
     return result
