@@ -58,6 +58,8 @@ class Settings:
     song_info: bool = True
     # Don't download songs that are already on the connected iPod (they're synced from there).
     skip_on_ipod: bool = False
+    # Run Update & Sync by itself when the iPod is plugged in (like iTunes did).
+    sync_on_connect: bool = False
 
     @property
     def music_path(self) -> pathlib.Path:
@@ -77,6 +79,7 @@ SETTING_HELP = {
     "lyrics": "on/off: put lyrics (from lrclib.net) inside downloaded songs",
     "song_info": "on/off: fill in genre and year from Deezer / Apple Music",
     "skip_on_ipod": "on/off: don't download songs already on the connected iPod",
+    "sync_on_connect": "on/off: Update & Sync by itself when the iPod is plugged in (app open)",
 }
 
 
@@ -129,7 +132,7 @@ def set_setting(settings: Settings, key: str, value: str) -> None:
         value = value.lower()
         if value not in ("artist", "playlist"):
             raise ValueError("folder_layout must be artist or playlist")
-    elif key in ("full_playlist_reader", "sound_check", "lyrics", "song_info", "skip_on_ipod"):
+    elif key in ("full_playlist_reader", "sound_check", "lyrics", "song_info", "skip_on_ipod", "sync_on_connect"):
         lowered = value.lower()
         if lowered not in ("on", "off", "true", "false", "yes", "no", "1", "0"):
             raise ValueError(f"{key} must be on or off")

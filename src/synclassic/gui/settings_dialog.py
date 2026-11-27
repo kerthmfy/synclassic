@@ -124,6 +124,20 @@ class SettingsDialog(QDialog):
         self.skip_on_ipod.setToolTip("Saves time and space. Those songs won't be on this Mac, so you can't play "
                                      "them here, and they'd need downloading for another iPod.")
         form.addRow("", self.skip_on_ipod)
+        self.sync_on_connect = QCheckBox("Update && Sync by itself when the iPod is plugged in")
+        self.sync_on_connect.setChecked(self.settings.sync_on_connect)
+        self.sync_on_connect.setToolTip("Like iTunes did. Anything that would remove songs or playlists is shown first.")
+        form.addRow("", self.sync_on_connect)
+        from synclassic import background
+
+        self.background = QComboBox()
+        for label, hours in (("Off", 0), ("Every 3 hours", 3), ("Every 6 hours", 6), ("Every 12 hours", 12),
+                             ("Once a day", 24)):
+            self.background.addItem(label, hours)
+        current = background.current_hours() or 0
+        self.background.setCurrentIndex(max(0, self.background.findData(current)))
+        self.background.setToolTip("Downloads new songs and podcast episodes even when Synclassic is closed (macOS).")
+        form.addRow("Check for new songs in the background", self.background)
         self.full_reader = QCheckBox("Read playlists over 100 songs in full from Spotify's web page")
         self.full_reader.setChecked(self.settings.full_playlist_reader)
         self.full_reader.setToolTip(
@@ -308,6 +322,20 @@ class SettingsDialog(QDialog):
         spotify_auth.forget_token()
         self._show_account(None)
 
+    def _apply_background(self) -> None:
+        import sys
+
+        from synclassic import background
+
+        hours = self.background.currentData() or 0
+        if hours == (background.current_hours() or 0):
+            return
+        if sys.platform != "darwin":
+            return
+        message = background.enable(hours) if hours else background.disable()
+        if message.startswith("Couldn't"):
+            QMessageBox.warning(self, "Background updates", message)
+
     def _save(self) -> None:
         self.settings.music_dir = self.folder.text().strip()
         self.settings.format = self.format.currentData()
@@ -319,6 +347,8 @@ class SettingsDialog(QDialog):
         self.settings.lyrics = self.lyrics.isChecked()
         self.settings.song_info = self.song_info.isChecked()
         self.settings.skip_on_ipod = self.skip_on_ipod.isChecked()
+        self.settings.sync_on_connect = self.sync_on_connect.isChecked()
+        self._apply_background()
         self.settings.folder_layout = self.layout_choice.currentData()
         self.settings.scrobble_after_sync = self.scrobble_after.isChecked()
         from synclassic import lastfm

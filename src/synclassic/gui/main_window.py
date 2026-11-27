@@ -1955,6 +1955,9 @@ class MainWindow(QMainWindow):
         self.ipod = ipod
         self.ipod_contents = None
         self.on_ipod_keys = set()
+        if ipod is not None and load_settings().sync_on_connect and not getattr(self, "_quitting", False):
+            # Plugged in: Update & Sync by itself (it still asks before removing anything).
+            QTimer.singleShot(1500, lambda: self.job is None and self.ipod is ipod and self.update_and_sync())
         if ipod is None and (self.current_key == IPOD or isinstance(self.current_key, tuple)):
             self.current_key = None
         self.refresh()
@@ -2402,6 +2405,15 @@ class MainWindow(QMainWindow):
         path = self.library_path
 
         def work(task: Task):
+            from synclassic.background import update_lock
+
+            with update_lock() as ok:
+                if not ok:
+                    task.say("The background update is running; try again in a few minutes.")
+                    return {"summary": "A background update is running; try again in a few minutes."}
+                return update(task)
+
+        def update(task: Task):
             library = Library(path)
             try:
                 if playlist_ids is None and refresh_sources:  # Update All: podcasts too

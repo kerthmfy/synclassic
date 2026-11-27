@@ -286,6 +286,12 @@ and still go into the iPod's playlists from the iPod's own copy.
 audio file from your Mac instead (it's copied into your music folder with the song's info and
 cover). **Search All Again** retries every song that wasn't found or failed.
 
+**Automatic**: Settings → "Update & Sync by itself when the iPod is plugged in" (anything that
+would remove songs or playlists is still shown first), and "Check for new songs in the
+background" (every 3/6/12/24 hours, even with the app closed: a macOS LaunchAgent runs
+`synclassic update`; log in `~/Library/Logs/Synclassic-background.log`). Terminal:
+`synclassic background on --every 6`, `synclassic background off`. Only one update runs at a time.
+
 **Fix Album Art…** (iPod menu, File menu, or `synclassic ipod art`): finds albums whose cover
 is missing or small enough to look pixelated (under 300 px), on the iPod and among the songs
 on your Mac, and looks for sharp ones: the album's Spotify cover for songs Synclassic

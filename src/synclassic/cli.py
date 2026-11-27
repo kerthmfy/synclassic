@@ -205,12 +205,46 @@ def run_update(
 
 
 def cmd_update(args) -> int:
-    library = open_library()
-    playlists = find_playlists(library, args.playlists)
-    if not playlists:
-        say("No playlists yet. Add one with: synclassic add <link or file>")
-        return 0
-    return run_update(library, playlists, retry_failed=args.retry_failed, download=not args.no_download)
+    from synclassic.background import update_lock
+
+    with update_lock() as ok:
+        if not ok:
+            say("Another update is running (the app, or the background update); skipping this one.")
+            return 0
+        if args.background:
+            import datetime
+
+            say(f"--- background update, {datetime.datetime.now():%Y-%m-%d %H:%M} ---")
+        library = open_library()
+        playlists = find_playlists(library, args.playlists)
+        code = 0
+        if playlists:
+            code = run_update(library, playlists, retry_failed=args.retry_failed, download=not args.no_download)
+        elif not args.playlists:
+            say("No playlists yet. Add one with: synclassic add <link or file>")
+        if not args.playlists and not args.no_download:  # updating everything: podcasts too
+            from synclassic.podcasts.store import Podcasts
+
+            store = Podcasts(library)
+            if store.podcasts():
+                new, downloaded = store.update_all(load_settings().music_path, say)
+                say(f"Podcasts: {new} new episodes, {downloaded} downloaded.")
+        return code
+
+
+def cmd_background(args) -> int:
+    from synclassic import background
+
+    if args.action == "on":
+        say(background.enable(args.every))
+    elif args.action == "off":
+        say(background.disable())
+    else:
+        hours = background.current_hours()
+        say(f"Background updates: {'every %g hours' % hours if hours else 'off'}.")
+        if hours:
+            say(f"Log: {background.log_path()}")
+    return 0
 
 
 def cmd_list(args) -> int:
@@ -714,7 +748,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("playlists", nargs="*", help="only these playlists (default: all)")
     p.add_argument("--retry-failed", action="store_true", help="also retry songs that failed or weren't found")
     p.add_argument("--no-download", action="store_true", help="only check for changes")
+    p.add_argument("--background", action="store_true", help=argparse.SUPPRESS)
     p.set_defaults(func=cmd_update)
+
+    p = sub.add_parser("background", help="background updates (macOS): on [--every HOURS], off, status")
+    p.add_argument("action", nargs="?", default="status", choices=["on", "off", "status"])
+    p.add_argument("--every", type=float, default=6, help="hours between updates (default 6)")
+    p.set_defaults(func=cmd_background)
 
     p = sub.add_parser("list", help="show your playlists and how many songs are ready")
     p.set_defaults(func=cmd_list)
