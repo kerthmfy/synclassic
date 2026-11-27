@@ -550,12 +550,12 @@ def cmd_find(args) -> int:
     try:
         if args.kind == "albums":
             for album in store.search_albums(term, country, limit=25):
-                say(f"  {album.id:>12}  {album.title} — {album.artist}" + (f" ({album.year})" if album.year else ""))
-            say("Get one: synclassic get album <number>")
+                say(f"  {album.id:>14}  {album.title} — {album.artist}" + (f" ({album.year})" if album.year else ""))
+            say("Get one: synclassic get album <id>   (e.g. dz:302127)")
         else:
             for song in store.search_songs(term, country, limit=25):
-                say(f"  {song.id:>12}  {song.artist} - {song.title}  [{song.album}]")
-            say("Get one: synclassic get song <number>")
+                say(f"  {song.id:>14}  {song.artist} - {song.title}  [{song.album}]")
+            say("Get one: synclassic get song <id>")
     except store.StoreError as error:
         say(str(error))
         return 1
@@ -573,13 +573,12 @@ def cmd_get(args) -> int:
             playlist = store.get_album(library, album, songs)
             say(f"Added the album {album.name} ({len(songs)} songs).")
         else:
-            found = store._get(store.LOOKUP_URL, {"id": args.id, "country": country})
-            songs = [store._song(r) for r in found if r.get("wrapperType") == "track"]
-            if not songs:
-                say("No song with that number.")
+            song = _store_song(store, args.id, country)
+            if song is None:
+                say("No song with that id.")
                 return 1
-            playlist = store.get_song(library, songs[0])
-            say(f"Added {songs[0].artist} - {songs[0].title} to {store.SONGS_NAME}.")
+            playlist = store.get_song(library, song)
+            say(f"Added {song.artist} - {song.title} to {store.SONGS_NAME}.")
     except store.StoreError as error:
         say(str(error))
         return 1
@@ -602,6 +601,17 @@ def cmd_genius(args) -> int:
         return 1
     say(f"Made “{playlist.name}” ({len(library.playlist_track_ids(playlist))} songs).")
     return run_update(library, [playlist], retry_failed=False, refresh=False)
+
+
+def _store_song(store, song_id: str, country: str):
+    if song_id.startswith("dz:"):
+        found = store._get(f"{store.DEEZER}/track/{song_id[3:]}", {})
+        album = store._get(f"{store.DEEZER}/album/{(found.get('album') or {}).get('id')}", {}) if found.get("album") else {}
+        return store._deezer_song(found, album) if found.get("id") else None
+    number = song_id.split(":")[-1]
+    body = store._get(store.LOOKUP_URL, {"id": number, "country": store.country(country)})
+    songs = [store._apple_song(r) for r in body.get("results", []) if r.get("wrapperType") == "track"]
+    return songs[0] if songs else None
 
 
 def cmd_lyrics(args) -> int:
@@ -920,7 +930,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("get", help="get a song or album found with 'find': get song|album NUMBER")
     p.add_argument("kind", choices=["song", "album"])
-    p.add_argument("id", type=int)
+    p.add_argument("id", help="as 'find' shows it, e.g. dz:3135556")
     p.set_defaults(func=cmd_get)
 
     p = sub.add_parser("genius", help='make a Genius playlist from a song: genius "Artist - Song"')

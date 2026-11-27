@@ -800,8 +800,8 @@ class MainWindow(QMainWindow):
             self.note.hide()
             self.update_one.hide()
             self.title.setText("Find Music")
-            self.subtitle.setText(f"Songs and albums from the {load_settings().store_country} music catalogue · "
-                                  "Get them, and they download and go on your iPod")
+            self.subtitle.setText("Songs and albums from around the world · Get them, and they download and go on "
+                                  "your iPod")
             self.stack.setCurrentIndex(9)
             self.find_page.query.setFocus()
             return
@@ -2007,8 +2007,12 @@ class MainWindow(QMainWindow):
     def get_store_song(self, song) -> None:
         from synclassic.sources import store
 
-        playlist = store.get_song(self.library, song)
-        self._download_collection(playlist, f"“{song.title}”")
+        def add(detailed):
+            playlist = store.get_song(self.library, detailed)
+            self._download_collection(playlist, f"“{detailed.title}”")
+
+        # Search results from Deezer leave out the track number, release date and genre: look them up first.
+        run_in_background(self, lambda task: store.song_details(song), add, lambda error: add(song))
 
     def get_store_album(self, album, songs) -> None:
         from synclassic.sources import store

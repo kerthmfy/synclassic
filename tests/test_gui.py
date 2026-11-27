@@ -594,9 +594,11 @@ def test_find_music_from_the_window(app, monkeypatch):
 
     web = Catalogue()
     real_songs, real_albums, real_tracks = store.search_songs, store.search_albums, store.album_tracks
-    monkeypatch.setattr(store, "search_songs", lambda term, country="US": real_songs(term, country, web))
-    monkeypatch.setattr(store, "search_albums", lambda term, country="US": real_albums(term, country, web))
-    monkeypatch.setattr(store, "album_tracks", lambda album_id, country="US": real_tracks(album_id, country, web))
+    real_details = store.song_details
+    monkeypatch.setattr(store, "search_songs", lambda term, country=None: real_songs(term, "US", web))
+    monkeypatch.setattr(store, "search_albums", lambda term, country=None: real_albums(term, "US", web))
+    monkeypatch.setattr(store, "album_tracks", lambda album_id, country=None: real_tracks(album_id, "US", web))
+    monkeypatch.setattr(store, "song_details", lambda song, session=None: real_details(song, web))
 
     def covers(urls, size):
         image = QImage(size, size, QImage.Format.Format_RGB32)
@@ -612,14 +614,17 @@ def test_find_music_from_the_window(app, monkeypatch):
     page = window.find_page
     page.query.setText("daft punk")
     page.search()
-    assert wait_until(app, lambda: page.song_list.topLevelItemCount() == 1)
+    assert wait_until(app, lambda: page.song_list.topLevelItemCount() == 2)
     get = page.song_list.itemWidget(page.song_list.topLevelItem(0), 5)
     assert get.text() == "Get"
     get.click()
-    assert started and window.library.playlists()[0].name == store.SONGS_NAME
+    assert wait_until(app, lambda: bool(started))
+    assert window.library.playlists()[0].name == store.SONGS_NAME
+    item = window.library.tracks_in_playlists()[0]
+    assert (item.track.track_number, item.track.genre) == (1, "Electro")  # details looked up before adding
 
     page.set_kind("albums")
-    assert wait_until(app, lambda: page.album_grid.count() == 1)
+    assert wait_until(app, lambda: page.album_grid.count() == 2)
     page.open_album(page.albums[0])
     assert wait_until(app, lambda: page.track_list.topLevelItemCount() == 2)
     page.get_album_button.click()
@@ -700,3 +705,45 @@ def test_virtual_ipod_menus_wheel_and_play(app, tmp_path):
     ipod.back()
     assert ipod.stack[-1].title == contents.name
     ipod.grab()
+
+
+def test_find_music_covers_survive_switching_views(app, monkeypatch):
+    import io
+
+    from PIL import Image
+
+    from synclassic.gui import store_view
+    from synclassic.sources import store
+
+    webp = io.BytesIO()
+    Image.new("RGB", (40, 40), (200, 30, 30)).save(webp, "WEBP")
+
+    class Session:
+        headers = {}
+
+        def get(self, url, timeout=None):
+            from types import SimpleNamespace
+
+            return SimpleNamespace(status_code=200, content=webp.getvalue())
+
+    import requests
+
+    monkeypatch.setattr(requests, "Session", Session)
+    assert not store_view._decode(webp.getvalue()).isNull()  # Pillow reads what Qt might not
+
+    albums = [store.StoreAlbum(f"dz:{n}", f"Album {n}", "A", "2001", "", 1, f"https://x/{n}/1000x1000-000000-80-0-0.jpg",
+                               False) for n in range(3)]
+    monkeypatch.setattr(store, "search_albums", lambda term, country=None: albums)
+    monkeypatch.setattr(store, "album_tracks", lambda album_id, country=None: (albums[0], []))
+    page = store_view.FindMusicPage(lambda: "", lambda song: False)
+    page.query.setText("x")
+    page.set_kind("albums")
+    assert wait_until(app, lambda: page.album_grid.count() == 3)
+    page.open_album(albums[0])  # opening an album right away must not lose the grid's covers
+    from PySide6.QtGui import QColor
+
+    def reddish(i):
+        color = QColor(page.album_grid.item(i).icon().pixmap(150, 150).toImage().pixel(75, 75))
+        return color.red() > 150 and color.green() < 80
+
+    assert wait_until(app, lambda: all(reddish(i) for i in range(3)))

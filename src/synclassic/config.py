@@ -67,8 +67,9 @@ class Settings:
     menu_bar_player: bool = True
     # Also get each song's official music video, converted for the iPod (Videos > Music Videos).
     music_videos: bool = False
-    # Which country's catalogue Find Music searches (two letters, e.g. US, GB, PH, JP).
-    store_country: str = "US"
+    # Find Music searches Deezer (worldwide) and Apple's catalogue for this country
+    # (two letters, e.g. PH, GB, JP); empty = this Mac's region.
+    store_country: str = ""
     # A chime when a sync finishes.
     sync_sound: bool = True
 
@@ -93,7 +94,7 @@ SETTING_HELP = {
     "sync_on_connect": "on/off: Update & Sync by itself when the iPod is plugged in (app open)",
     "music_videos": "on/off: also get official music videos, converted for the iPod",
     "sync_sound": "on/off: a chime when a sync finishes",
-    "store_country": "two-letter country code of the catalogue Find Music searches (e.g. US, GB, PH)",
+    "store_country": "country of Apple's catalogue in Find Music (e.g. PH, GB, JP); empty = this Mac's region",
 }
 
 
@@ -154,8 +155,10 @@ def set_setting(settings: Settings, key: str, value: str) -> None:
         return
     elif key == "store_country":
         value = value.strip().upper()
-        if not re.fullmatch(r"[A-Z]{2}", value):
-            raise ValueError("store_country must be a two-letter country code, like US or PH")
+        if value in ("AUTO", "AUTOMATIC"):
+            value = ""
+        if value and not re.fullmatch(r"[A-Z]{2}", value):
+            raise ValueError("store_country must be a two-letter country code, like PH or GB (or auto)")
     elif key == "music_dir" and value:
         value = str(pathlib.Path(value).expanduser().resolve())
     setattr(settings, key, value)

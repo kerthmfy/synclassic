@@ -32,20 +32,51 @@ THUMB = 40
 TILE = 150
 
 
+LAST_IMAGE_PROBLEM: list[str] = []  # why the last cover couldn't be shown (for the status line)
+
+
+def _decode(data: bytes) -> QImage:
+    """Qt's decoder first; Pillow for anything it can't read (WebP, unusual JPEGs)."""
+    image = QImage.fromData(data)
+    if not image.isNull():
+        return image
+    try:
+        import io
+
+        from PIL import Image
+
+        picture = Image.open(io.BytesIO(data)).convert("RGB")
+        raw = picture.tobytes()
+        return QImage(raw, picture.width, picture.height, picture.width * 3, QImage.Format.Format_RGB888).copy()
+    except Exception:
+        return QImage()
+
+
 def _fetch_images(urls: list[str], size: int) -> list[tuple[int, QImage]]:
     import requests
 
+    session = requests.Session()
+    session.headers["User-Agent"] = store.USER_AGENT
     images = []
+    LAST_IMAGE_PROBLEM.clear()
     for index, url in enumerate(urls):
         if not url:
             continue
-        try:
-            response = requests.get(store.artwork(url, size), timeout=15)
-        except requests.RequestException:
-            continue
-        image = QImage.fromData(response.content) if response.status_code == 200 else QImage()
-        if not image.isNull():
+        for candidate in dict.fromkeys((store.artwork(url, size), url)):  # the sized link, else the original
+            try:
+                response = session.get(candidate, timeout=15)
+            except requests.RequestException as error:
+                LAST_IMAGE_PROBLEM[:] = [f"covers couldn't be downloaded ({error.__class__.__name__})"]
+                continue
+            if response.status_code != 200:
+                LAST_IMAGE_PROBLEM[:] = [f"the cover server answered HTTP {response.status_code}"]
+                continue
+            image = _decode(response.content)
+            if image.isNull():
+                LAST_IMAGE_PROBLEM[:] = ["a cover couldn't be read"]
+                continue
             images.append((index, image))
+            break
     return images
 
 
@@ -203,15 +234,24 @@ class FindMusicPage(QWidget):
             else:
                 self.show_albums(found)
             self.status.setText(f"{len(found)} {kind} for “{term}”" if found else f"Nothing found for “{term}”. "
-                                "Try fewer words, or another country's catalogue in Settings.")
+                                "Try fewer or other words.")
 
         run_in_background(self, work, done, lambda error: self.status.setText(str(error)))
 
-    def _load_images(self, urls: list[str], size: int, show) -> None:
-        generation = self._generation
-        run_in_background(self, lambda task: _fetch_images(urls, size),
-                          lambda images: generation == self._generation and [show(i, img) for i, img in images],
-                          lambda error: None)
+    def _load_images(self, urls: list[str], size: int, show, still_current) -> None:
+        """Load covers in the background; `still_current()` says whether the list they're for is
+        still the one shown (a newer search replaces it; switching tabs or opening an album doesn't)."""
+
+        def done(images):
+            if not still_current():
+                return
+            for index, image in images:
+                show(index, image)
+            if LAST_IMAGE_PROBLEM and len(images) < sum(1 for u in urls if u):
+                self.status.setText(self.status.text().split("  (")[0] + f"  ({LAST_IMAGE_PROBLEM[0]})")
+
+        run_in_background(self, lambda task: _fetch_images(urls, size), done,
+                          lambda error: self.status.setText(f"Covers couldn't load: {error}"))
 
     def _get_button(self, song: store.StoreSong) -> QPushButton:
         button = QPushButton("In Library" if self.in_library(song) else "Get")
@@ -236,7 +276,8 @@ class FindMusicPage(QWidget):
             self.song_list.addTopLevelItem(row)
             self.song_list.setItemWidget(row, 5, self._get_button(song))
         self._load_images([s.artwork for s in songs], 100,
-                          lambda i, image: self.song_list.topLevelItem(i).setIcon(0, _icon(image, THUMB)))
+                          lambda i, image: self.song_list.topLevelItem(i).setIcon(0, _icon(image, THUMB)),
+                          lambda: self.songs is songs)
 
     def show_albums(self, albums: list[store.StoreAlbum]) -> None:
         self.albums = albums
@@ -250,7 +291,8 @@ class FindMusicPage(QWidget):
             item.setIcon(QIcon(placeholder_cover(TILE)))
             self.album_grid.addItem(item)
         self._load_images([a.artwork for a in albums], 300,
-                          lambda i, image: self.album_grid.item(i).setIcon(_icon(image, TILE)))
+                          lambda i, image: self.album_grid.item(i).setIcon(_icon(image, TILE)),
+                          lambda: self.albums is albums)
 
     # --- one album ------------------------------------------------------------------------------
 
@@ -285,7 +327,8 @@ class FindMusicPage(QWidget):
                           lambda error: self.status.setText(str(error)))
         self._load_images([album.artwork], 600, lambda i, image: self.album_cover.setPixmap(
             QPixmap.fromImage(image.scaled(170, 170, Qt.AspectRatioMode.KeepAspectRatio,
-                                           Qt.TransformationMode.SmoothTransformation))))
+                                           Qt.TransformationMode.SmoothTransformation))),
+            lambda: self.album is album)
 
     def _get_album(self) -> None:
         if self.album is None or not self.album_songs:

@@ -109,6 +109,16 @@ class SettingsDialog(QDialog):
         self.pause.setValue(self.settings.download_pause)
         form.addRow("Pause between downloads", self.pause)
 
+        from synclassic.sources.store import default_country
+
+        self.store_country = QLineEdit(self.settings.store_country)
+        self.store_country.setMaxLength(2)
+        self.store_country.setFixedWidth(60)
+        self.store_country.setPlaceholderText(default_country())
+        self.store_country.setToolTip("Find Music searches Deezer (worldwide) and Apple's catalogue for this country. "
+                                      "Leave empty to use your Mac's region.")
+        form.addRow("Find Music: Apple catalogue country", self.store_country)
+
         self.sound_check = QCheckBox("Sound Check: measure each song's loudness so the iPod plays them evenly")
         self.sound_check.setChecked(self.settings.sound_check)
         self.sound_check.setToolTip("Turn Sound Check on on the iPod too: Settings → Sound Check.")
@@ -358,6 +368,8 @@ class SettingsDialog(QDialog):
         self.settings.download_pause = float(self.pause.value())
         self.settings.full_playlist_reader = self.full_reader.isChecked()
         self.settings.sound_check = self.sound_check.isChecked()
+        country = self.store_country.text().strip().upper()
+        self.settings.store_country = country if len(country) == 2 and country.isalpha() else ""
         self.settings.lyrics = self.lyrics.isChecked()
         self.settings.song_info = self.song_info.isChecked()
         self.settings.skip_on_ipod = self.skip_on_ipod.isChecked()

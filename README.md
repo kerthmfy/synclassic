@@ -102,19 +102,14 @@ synclassic add "~/Downloads/Road Trip.m3u8" ~/Downloads/export.csv
 ## Find Music (songs and albums)
 
 Not everything is in a playlist: click **Find Music** (under LIBRARY), search for a song, album
-or artist, and **Get** a song or **Get Album**. Song info and covers (1000 px) come from Apple's
-music catalogue; the audio is found on YouTube Music and downloaded like playlist songs. Gotten
-albums each appear as a collection; single songs go to **Songs I Got**. On the iPod they show
-under Albums, Artists and Songs (they aren't made into iPod playlists). The catalogue's country
-is a setting (`synclassic config store_country PH`). Terminal:
-`synclassic find albums daft punk discovery`, then `synclassic get album <number>`.
-
-## Genius playlists
-
-Right-click a song (in a playlist or on the iPod) → **Make Genius Playlist**: the song plus 24
-that go well with it, from what Last.fm's listeners play together (at most 3 per artist). It
-downloads and goes on the iPod like any playlist, and Update refreshes it. Terminal:
-`synclassic genius "Daft Punk - One More Time"`.
+or artist, and **Get** a song or **Get Album**. Results come from Deezer's catalogue (one for the
+whole world) and Apple's (for your own country, so local releases show up too), merged without
+duplicates, with accurate song info and 1000 px covers. The audio is found on YouTube Music and
+downloaded like playlist songs. Gotten albums each appear as a collection; single songs go to
+**Songs I Got**. On the iPod they show under Albums, Artists and Songs (they aren't made into
+iPod playlists). Apple's country is your Mac's region unless you set one in Settings
+(`synclassic config store_country PH`). Terminal: `synclassic find albums daft punk discovery`,
+then `synclassic get album <id>`.
 
 ## Long playlists without logging in
 
