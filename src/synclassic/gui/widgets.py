@@ -412,6 +412,13 @@ def draw_source_icon(painter: QPainter, r: QRectF, kind: str) -> None:
             painter.drawEllipse(c, 1.6, 1.6)
             painter.drawArc(QRectF(c.x() - 4.5, c.y() - 4.5, 9, 9), 30 * 16, 120 * 16)
             painter.drawArc(QRectF(c.x() - 4.5, c.y() - 4.5, 9, 9), 210 * 16, 120 * 16)
+    elif kind == "search":
+        lens = QRectF(r.left() + 1.5, r.top() + 1.5, 9.5, 9.5)
+        painter.setPen(QPen(QColor("#2a5ea8"), 1.6))
+        painter.setBrush(_gradient(lens, (0, "#e3f0ff"), (1, "#9cc6f5")))
+        painter.drawEllipse(lens)
+        painter.setPen(QPen(QColor("#3a3a3a"), 2.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        painter.drawLine(QPointF(lens.right() - 1.2, lens.bottom() - 1.2), QPointF(r.right() - 1.5, r.bottom() - 1.5))
     elif kind == "stats":
         for i, height in enumerate((6, 11, 8)):
             column = QRectF(r.left() + 1.5 + i * 4.6, r.bottom() - 1 - height, 3.6, height)

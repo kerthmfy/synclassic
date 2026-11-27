@@ -34,9 +34,6 @@ class StatsPage(QWidget):
         for key, label in PERIODS:
             button = QPushButton(label)
             button.setCheckable(True)
-            button.setStyleSheet("QPushButton:checked { color: white; border: 1px solid #2b5ea8; border-radius: 10px;"
-                                 " padding: 3px 12px; background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #8cc0f7,"
-                                 " stop:0.5 #3f8ae6, stop:0.51 #2a76db, stop:1 #4f9bef); }")
             button.clicked.connect(lambda _=False, k=key: self.show_period(k))
             row.addWidget(button)
             self.buttons[key] = button

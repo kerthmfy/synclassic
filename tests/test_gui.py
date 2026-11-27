@@ -61,7 +61,7 @@ def test_update_from_window(app, monkeypatch, tmp_path):
     assert window.job is not None and not window.update_action.isEnabled()
     assert wait_until(app, lambda: window.job is None)
 
-    assert window.sidebar_entries() == ["Podcasts", "Listening Stats", "Needs Attention (1)", "Mix (1)"]  # (count) = songs not ready
+    assert window.sidebar_entries() == ["Find Music", "Podcasts", "Listening Stats", "Needs Attention (1)", "Mix (1)"]  # (count) = songs not ready
     assert "1 downloaded" in window.status_label.text()
     assert (config.load_settings().music_path / "Playlists" / "Mix.m3u8").is_file()
     window.close()
@@ -193,7 +193,7 @@ def test_browse_the_ipod(app, monkeypatch, tmp_path):
 
     window = MainWindow()
     assert wait_until(app, lambda: window.ipod_contents is not None)
-    assert window.sidebar_entries() == ["Podcasts", "Listening Stats", "Kerth's iPod", "Music", "Albums", "Artists", "Genres", "Yeah"]
+    assert window.sidebar_entries() == ["Find Music", "Podcasts", "Listening Stats", "Kerth's iPod", "Music", "Albums", "Artists", "Genres", "Yeah"]
 
     def select(key):
         for i in range(window.sidebar.topLevelItemCount()):
@@ -482,7 +482,7 @@ def test_podcasts_from_the_window(app, monkeypatch, tmp_path):
     window.subscribe_podcast()
     assert wait_until(app, lambda: window.job is None)
     assert window.current_key == PODCASTS and window.stack.currentIndex() == 7
-    assert window.sidebar_entries()[0] == "Podcasts (2)"  # two new episodes downloaded
+    assert window.sidebar_entries()[1] == "Podcasts (2)"  # two new episodes downloaded
     page = window.podcasts_page
     show = page.topLevelItem(0)
     assert show.text(0) == "Sample Talk Show" and show.childCount() == 2
@@ -582,3 +582,47 @@ def test_mini_player_and_menu_bar_follow_playback(app, monkeypatch):
     assert window.menu_bar_player.now.text() == "Song" and "Artist" in window.menu_bar_player.line.text()
     window.close()
     assert not window.mini_player.isVisible()
+
+
+def test_find_music_from_the_window(app, monkeypatch):
+    from PySide6.QtGui import QColor, QImage
+
+    from synclassic.gui import store_view
+    from synclassic.gui.main_window import FIND, MainWindow
+    from synclassic.sources import store
+    from tests.test_store import Catalogue
+
+    web = Catalogue()
+    real_songs, real_albums, real_tracks = store.search_songs, store.search_albums, store.album_tracks
+    monkeypatch.setattr(store, "search_songs", lambda term, country="US": real_songs(term, country, web))
+    monkeypatch.setattr(store, "search_albums", lambda term, country="US": real_albums(term, country, web))
+    monkeypatch.setattr(store, "album_tracks", lambda album_id, country="US": real_tracks(album_id, country, web))
+
+    def covers(urls, size):
+        image = QImage(size, size, QImage.Format.Format_RGB32)
+        image.fill(QColor("#c03"))
+        return [(i, image) for i, url in enumerate(urls) if url]
+
+    monkeypatch.setattr(store_view, "_fetch_images", covers)
+    window = MainWindow()
+    started = []
+    monkeypatch.setattr(window, "start_update", lambda ids, **kw: started.append(ids))
+    window.current_key = FIND
+    window._show_current()
+    page = window.find_page
+    page.query.setText("daft punk")
+    page.search()
+    assert wait_until(app, lambda: page.song_list.topLevelItemCount() == 1)
+    get = page.song_list.itemWidget(page.song_list.topLevelItem(0), 5)
+    assert get.text() == "Get"
+    get.click()
+    assert started and window.library.playlists()[0].name == store.SONGS_NAME
+
+    page.set_kind("albums")
+    assert wait_until(app, lambda: page.album_grid.count() == 1)
+    page.open_album(page.albums[0])
+    assert wait_until(app, lambda: page.track_list.topLevelItemCount() == 2)
+    page.get_album_button.click()
+    names = [p.name for p in window.library.playlists()]
+    assert "Discovery — Daft Punk" in names and len(started) == 2
+    window.close()

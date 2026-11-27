@@ -83,6 +83,10 @@ QPushButton:default:pressed, QPushButton[aqua="true"]:pressed {{
         stop:0 #9ccaf5, stop:0.49 #5d9be0, stop:0.5 {AQUA_BOTTOM}, stop:1 #7fbdf7);
 }}
 QPushButton:disabled {{ color: #9a9a9a; border-color: #b8b8b8; background: #efefef; }}
+QPushButton:checked {{
+    color: #ffffff; border-color: #2b5ea8;
+    background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #8cc0f7, stop:0.5 #3f8ae6, stop:0.51 #2a76db, stop:1 #4f9bef);
+}}
 
 /* ---- text fields ---- */
 QLineEdit, QPlainTextEdit, QDoubleSpinBox, QSpinBox {{

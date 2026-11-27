@@ -25,13 +25,17 @@ FullReader = Callable[[SpotifyRef, "int | None", str], "SourcePlaylist | None"]
 
 @dataclass(frozen=True)
 class SourceSpec:
-    kind: str  # "spotify", "liked", "m3u" or "csv"
+    kind: str  # "spotify", "liked", "m3u", "csv", or "store-album" / "store-songs" (Find Music)
     ref: str  # Spotify URL, or an absolute file path
     selector: str = ""  # CSV only: which playlist inside the file
 
     def describe(self) -> str:
         if self.kind == "liked":
             return "Spotify Liked Songs"
+        if self.kind == "store-album":
+            return "Album from Find Music"
+        if self.kind == "store-songs":
+            return "Songs you got in Find Music"
         if self.kind == "spotify":
             return self.ref
         return f"{self.ref}" + (f" [{self.selector}]" if self.selector else "")
@@ -76,6 +80,14 @@ def read_source(spec: SourceSpec, client: SpotifyClient | None, full_reader: Ful
             if not ref:
                 raise SourceError(f"Bad Spotify link: {spec.ref}")
             return _read_spotify(ref, client, full_reader)
+        if spec.kind == "store-album":
+            from synclassic.config import load_settings
+            from synclassic.sources import store
+
+            try:
+                return store.read_album(spec.ref, load_settings().store_country)
+            except store.StoreError as error:
+                raise SourceError(str(error)) from error
         if spec.kind == "m3u":
             path = pathlib.Path(spec.ref)
             if not path.is_file():

@@ -99,6 +99,16 @@ synclassic add "~/Downloads/Road Trip.m3u8" ~/Downloads/export.csv
 | `.m3u8` / `.m3u` file | No | Songs that already exist on your Mac are used as-is; others are downloaded. |
 | `.csv` export (Exportify, TuneMyMusic) | No | A file with several playlists becomes several playlists. |
 
+## Find Music (songs and albums)
+
+Not everything is in a playlist: click **Find Music** (under LIBRARY), search for a song, album
+or artist, and **Get** a song or **Get Album**. Song info and covers (1000 px) come from Apple's
+music catalogue; the audio is found on YouTube Music and downloaded like playlist songs. Gotten
+albums each appear as a collection; single songs go to **Songs I Got**. On the iPod they show
+under Albums, Artists and Songs (they aren't made into iPod playlists). The catalogue's country
+is a setting (`synclassic config store_country PH`). Terminal:
+`synclassic find albums daft punk discovery`, then `synclassic get album <number>`.
+
 ## Long playlists without logging in
 
 Spotify only shares the first 100 songs of a playlist with apps that aren't logged in. For

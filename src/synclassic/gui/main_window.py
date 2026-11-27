@@ -65,7 +65,8 @@ ATTENTION = "__attention__"
 IPOD = "__ipod__"
 PODCASTS = "__podcasts__"
 STATS = "__stats__"
-SPECIAL = (None, ATTENTION, IPOD, PODCASTS, STATS)  # sources that aren't Synclassic playlists
+FIND = "__find__"
+SPECIAL = (None, ATTENTION, IPOD, PODCASTS, STATS, FIND)  # sources that aren't Synclassic playlists
 ATTENTION_STATUSES = ("review", "unmatched", "failed")
 
 STATUS = {
@@ -443,6 +444,12 @@ class MainWindow(QMainWindow):
 
         self.stats_page = StatsPage()
         self.stack.addWidget(self.stats_page)  # 8
+        from synclassic.gui.store_view import FindMusicPage
+
+        self.find_page = FindMusicPage(lambda: load_settings().store_country, self._in_library)
+        self.find_page.get_song.connect(self.get_store_song)
+        self.find_page.get_album.connect(self.get_store_album)
+        self.stack.addWidget(self.find_page)  # 9
         for table in self._ipod_tables():
             table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             table.customContextMenuRequested.connect(lambda pos, t=table: self._ipod_song_menu(t, pos))
@@ -658,6 +665,7 @@ class MainWindow(QMainWindow):
         self.sidebar.blockSignals(True)
         self.sidebar.clear()
         self._add_section("Library")
+        self._add_source("Find Music", FIND, "search", tip="Search songs and albums and get them")
         self._add_source("Podcasts", PODCASTS, "podcasts", self._podcasts().new_count() or None,
                          "Podcasts you subscribe to (the number: new episodes)")
         self._add_source("Listening Stats", STATS, "stats", tip="Your most played songs, artists and albums")
@@ -671,7 +679,8 @@ class MainWindow(QMainWindow):
             total = sum(counts.values())
             ready = counts.get("downloaded", 0) + counts.get("review", 0) + counts.get("local", 0)
             waiting = total - ready
-            self._add_source(playlist.name, playlist.id, "playlist", waiting or None,
+            icon = {"store-album": "albums", "store-songs": "music"}.get(playlist.spec.kind, "playlist")
+            self._add_source(playlist.name, playlist.id, icon, waiting or None,
                              f"{ready} of {total} songs ready · {playlist.spec.describe()}")
         if self.ipod is not None:
             self._add_section("Devices")
@@ -766,6 +775,17 @@ class MainWindow(QMainWindow):
             return
         if self.current_key == PODCASTS:
             self._show_podcasts()
+            return
+        if self.current_key == FIND:
+            self._show_podcast_buttons(False)
+            self.header_strip.show()
+            self.note.hide()
+            self.update_one.hide()
+            self.title.setText("Find Music")
+            self.subtitle.setText(f"Songs and albums from the {load_settings().store_country} music catalogue · "
+                                  "Get them, and they download and go on your iPod")
+            self.stack.setCurrentIndex(9)
+            self.find_page.query.setFocus()
             return
         if self.current_key == STATS:
             self._show_podcast_buttons(False)
@@ -1937,6 +1957,36 @@ class MainWindow(QMainWindow):
         elif not wanted and self.menu_bar_player is not None:
             self.menu_bar_player.hide()
             self.menu_bar_player = None
+
+    # --- Find Music -------------------------------------------------------------------------------
+
+    def _in_library(self, song) -> bool:
+        from synclassic.library import track_key
+        from synclassic.sources.store import to_track
+
+        item = self.library.db.execute("SELECT status FROM tracks WHERE key = ?", (track_key(to_track(song)),)).fetchone()
+        return item is not None and item["status"] in ("downloaded", "review", "local")
+
+    def _download_collection(self, playlist, what: str) -> None:
+        finalize(self.library)
+        self.refresh()
+        if self.job is None:
+            self.say(f"Getting {what}…")
+            self.start_update([playlist.id], refresh_sources=False)
+        else:
+            self.say(f"{what} added; it downloads with the next update.")
+
+    def get_store_song(self, song) -> None:
+        from synclassic.sources import store
+
+        playlist = store.get_song(self.library, song)
+        self._download_collection(playlist, f"“{song.title}”")
+
+    def get_store_album(self, album, songs) -> None:
+        from synclassic.sources import store
+
+        playlist = store.get_album(self.library, album, songs)
+        self._download_collection(playlist, f"the album “{album.title}”")
 
     def show_mini_player(self) -> None:
         from synclassic.gui.mini_player import MiniPlayer

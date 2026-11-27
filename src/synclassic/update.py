@@ -56,6 +56,10 @@ def keys_on_connected_ipod(library: Library, settings: Settings) -> set[str] | N
 def refresh_playlist(
     library: Library, playlist: LibraryPlaylist, client: SpotifyClient | None, full_reader: FullReader | None = None
 ) -> RefreshReport:
+    if playlist.spec.kind == "store-songs":  # songs you picked one by one: nothing to check
+        report = RefreshReport(playlist.name)
+        report.total = len(library.playlist_track_ids(playlist))
+        return report
     try:
         source = read_source(playlist.spec, client, full_reader)
     except SourceError as error:

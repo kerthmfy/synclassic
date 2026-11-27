@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 import sys
 from dataclasses import asdict, dataclass, fields
 
@@ -66,6 +67,8 @@ class Settings:
     menu_bar_player: bool = True
     # Also get each song's official music video, converted for the iPod (Videos > Music Videos).
     music_videos: bool = False
+    # Which country's catalogue Find Music searches (two letters, e.g. US, GB, PH, JP).
+    store_country: str = "US"
 
     @property
     def music_path(self) -> pathlib.Path:
@@ -87,6 +90,7 @@ SETTING_HELP = {
     "skip_on_ipod": "on/off: don't download songs already on the connected iPod",
     "sync_on_connect": "on/off: Update & Sync by itself when the iPod is plugged in (app open)",
     "music_videos": "on/off: also get official music videos, converted for the iPod",
+    "store_country": "two-letter country code of the catalogue Find Music searches (e.g. US, GB, PH)",
 }
 
 
@@ -145,6 +149,10 @@ def set_setting(settings: Settings, key: str, value: str) -> None:
             raise ValueError(f"{key} must be on or off")
         setattr(settings, key, lowered in ("on", "true", "yes", "1"))
         return
+    elif key == "store_country":
+        value = value.strip().upper()
+        if not re.fullmatch(r"[A-Z]{2}", value):
+            raise ValueError("store_country must be a two-letter country code, like US or PH")
     elif key == "music_dir" and value:
         value = str(pathlib.Path(value).expanduser().resolve())
     setattr(settings, key, value)

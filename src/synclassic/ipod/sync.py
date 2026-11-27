@@ -276,7 +276,11 @@ def make_plan(library: Library, ipod: IPod, db: itunesdb.Chunk | None = None) ->
 
     existing = {p.chunk.u64(0x1C): p for p in itunesdb.playlists(db, 2) if not p.is_master}
     owned_ids = {int(v["id"], 16) for v in state["playlists"].values()}
+    from synclassic.sources.store import COLLECTION_KINDS
+
     for playlist in library.playlists():
+        if playlist.spec.kind in COLLECTION_KINDS:
+            continue  # Find Music albums and songs: on the iPod by album/artist, not as playlists
         key = playlist_key(playlist)
         items = [i for i in library.playlist_tracks(playlist) if i.key in on_ipod]
         known = state["playlists"].get(key)
@@ -308,7 +312,7 @@ def make_plan(library: Library, ipod: IPod, db: itunesdb.Chunk | None = None) ->
             planned.unchanged = current.name == playlist.name and current.track_ids == [id_by_dbid.get(d) for d in dbids]
         plan.playlists.append(planned)
 
-    library_keys = {playlist_key(p) for p in library.playlists()}
+    library_keys = {playlist_key(p) for p in library.playlists() if p.spec.kind not in COLLECTION_KINDS}
     for key, value in state["playlists"].items():
         pid = int(value["id"], 16)
         if key not in library_keys and pid in existing:

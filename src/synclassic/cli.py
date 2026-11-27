@@ -542,6 +542,50 @@ def cmd_ipod(args) -> int:
     return 0
 
 
+def cmd_find(args) -> int:
+    from synclassic.sources import store
+
+    term = " ".join(args.words)
+    country = load_settings().store_country
+    try:
+        if args.kind == "albums":
+            for album in store.search_albums(term, country, limit=25):
+                say(f"  {album.id:>12}  {album.title} — {album.artist}" + (f" ({album.year})" if album.year else ""))
+            say("Get one: synclassic get album <number>")
+        else:
+            for song in store.search_songs(term, country, limit=25):
+                say(f"  {song.id:>12}  {song.artist} - {song.title}  [{song.album}]")
+            say("Get one: synclassic get song <number>")
+    except store.StoreError as error:
+        say(str(error))
+        return 1
+    return 0
+
+
+def cmd_get(args) -> int:
+    from synclassic.sources import store
+
+    country = load_settings().store_country
+    library = open_library()
+    try:
+        if args.kind == "album":
+            album, songs = store.album_tracks(args.id, country)
+            playlist = store.get_album(library, album, songs)
+            say(f"Added the album {album.name} ({len(songs)} songs).")
+        else:
+            found = store._get(store.LOOKUP_URL, {"id": args.id, "country": country})
+            songs = [store._song(r) for r in found if r.get("wrapperType") == "track"]
+            if not songs:
+                say("No song with that number.")
+                return 1
+            playlist = store.get_song(library, songs[0])
+            say(f"Added {songs[0].artist} - {songs[0].title} to {store.SONGS_NAME}.")
+    except store.StoreError as error:
+        say(str(error))
+        return 1
+    return run_update(library, [playlist], retry_failed=False, refresh=False)
+
+
 def cmd_lyrics(args) -> int:
     from synclassic.ipod import lyrics_sync
     from synclassic.ipod.device import find_ipods
@@ -850,6 +894,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("action", nargs="?", default="list", choices=["list", "search", "add", "update", "keep", "remove"])
     p.add_argument("words", nargs="*", help="search words, feed addresses, or numbers from the list")
     p.set_defaults(func=cmd_podcast)
+
+    p = sub.add_parser("find", help="search the music catalogue: find songs|albums WORDS")
+    p.add_argument("kind", choices=["songs", "albums"])
+    p.add_argument("words", nargs="+")
+    p.set_defaults(func=cmd_find)
+
+    p = sub.add_parser("get", help="get a song or album found with 'find': get song|album NUMBER")
+    p.add_argument("kind", choices=["song", "album"])
+    p.add_argument("id", type=int)
+    p.set_defaults(func=cmd_get)
 
     p = sub.add_parser("lyrics", help="put lyrics inside songs that don't have them (this Mac and the iPod)")
     p.add_argument("--mac-only", action="store_true", help="leave the iPod alone")
