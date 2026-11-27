@@ -442,7 +442,8 @@ pytest
 ```
 
 The banner at the top of this page is `docs/banner/banner.html` (text, colours and layout are
-easy to change there; open it in a browser to preview). Turn it into `docs/banner.png` with:
+easy to change there; open it in a browser to preview). Turn it into `docs/banner.png` with the
+command below; it uses Chrome, Chromium, Brave or Edge if you have one (invisibly), otherwise Qt:
 
 ```bash
 python docs/banner/render.py
