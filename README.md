@@ -261,6 +261,15 @@ Safety: the iPod's database is backed up before every sync (the last 10 are kept
 synclassic ipod restore
 ```
 
+**Fix Album Art…** (iPod menu, File menu, or `synclassic ipod art`): finds albums whose cover
+is missing or small enough to look pixelated (under 300 px), on the iPod and among the songs
+on your Mac, and looks for sharp ones: the album's Spotify cover for songs Synclassic
+downloaded, then Deezer, then Apple Music. You see the old and new cover side by side and pick
+which to put on. Synclassic's own copies on your Mac get the new cover too, so later syncs keep
+it. "Also check covers that can't be measured" includes songs whose cover isn't inside the
+file (often ones from iTunes); for those only a 600 px or larger cover is offered. Terminal:
+`synclassic ipod art` lists what it would change; add `--apply` to do it (`--all` = every album).
+
 Album art: songs Synclassic copies get their cover (the one embedded in the downloaded
 file) in the sizes your iPod uses (100×100 and 200×200 on the 5G/5.5G). Songs added before
 album art was supported get it on the next sync. Covers shared by several songs are stored

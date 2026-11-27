@@ -97,3 +97,28 @@ def _tag_mp3(path: pathlib.Path, track: Track, cover: bytes | None, youtube_id: 
         tags.add(TXXX(encoding=3, desc="YOUTUBE_ID", text=youtube_id))
     # ID3v2.3 is the version old iPods and iTunes read most reliably.
     tags.save(path, v2_version=3)
+
+
+def embed_cover(path: pathlib.Path, cover: bytes) -> None:
+    """Replace just the cover inside a song file (M4A or MP3); everything else stays."""
+    suffix = path.suffix.lower()
+    if suffix in (".m4a", ".m4b", ".mp4", ".aac"):
+        from mutagen.mp4 import MP4, MP4Cover
+
+        audio = MP4(path)
+        if audio.tags is None:
+            audio.add_tags()
+        audio.tags["covr"] = [MP4Cover(cover, MP4Cover.FORMAT_PNG if _is_png(cover) else MP4Cover.FORMAT_JPEG)]
+        audio.save()
+    elif suffix == ".mp3":
+        from mutagen.id3 import APIC, ID3, ID3NoHeaderError
+
+        try:
+            tags = ID3(path)
+        except ID3NoHeaderError:
+            tags = ID3()
+        tags.delall("APIC")
+        tags.add(APIC(encoding=3, mime="image/png" if _is_png(cover) else "image/jpeg", type=3, desc="Cover", data=cover))
+        tags.save(path)
+    else:
+        raise ValueError(f"Can't put a cover inside {suffix} files")

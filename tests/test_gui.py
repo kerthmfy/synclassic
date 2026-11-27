@@ -506,3 +506,34 @@ def test_podcasts_from_the_window(app, monkeypatch, tmp_path):
     page.apply_search("earlier")
     assert page.topLevelItem(0).child(0).isHidden() and not page.topLevelItem(0).child(1).isHidden()
     window.close()
+
+
+def test_fix_album_art_from_the_window(app, monkeypatch, tmp_path):
+    from synclassic.gui.art_dialog import ArtFixDialog
+    from synclassic.gui.main_window import MainWindow
+    from synclassic.ipod import art_fix, itunesdb
+    from synclassic.ipod.device import ipod_at
+    from tests.test_art_fix import Web, small_cover_library
+    from tests.test_ipod_artwork import video_ipod_artwork
+    from tests.test_ipod_read import fake_ipod, load
+
+    raw = load("captured-album-index-36.b64")
+    root = fake_ipod(tmp_path, raw)
+    video_ipod_artwork(root, itunesdb.songs(itunesdb.parse(raw))[0].dbid)
+    small_cover_library(tmp_path).close()
+    web = Web()
+    real = art_fix.CoverFinder
+    monkeypatch.setattr(art_fix, "CoverFinder", lambda: real(web.get, web.fetch, sleep=lambda s: None))
+    monkeypatch.setenv("SYNCLASSIC_IPOD", str(root))
+    window = MainWindow()
+    assert wait_until(app, lambda: window.ipod_contents is not None)
+    dialog = ArtFixDialog(window, window.ipod, window.library_path)
+    assert wait_until(app, lambda: dialog.worker is None and dialog.list.topLevelItemCount() > 0, 30)
+    assert "sharp covers found for 3" in dialog.status.text()
+    assert len(dialog.chosen()) == 3 and dialog.replace_button.text() == "Replace 3 Covers"
+    dialog.replace_button.click()
+    assert wait_until(app, lambda: window.job is None, 30)
+    assert "New covers for 3 songs" in window.log.toPlainText()
+    left = [a for a in art_fix.scan(ipod_at(root)) if a.title.startswith("Album ")]
+    assert left == []
+    window.close()

@@ -62,6 +62,7 @@ class EditSession:
         self.files_to_delete: list[pathlib.Path] = []
         self.copied: list[pathlib.Path] = []
         self.art_jobs: list[tuple[int, bytes]] = []
+        self.art_replaced: set[int] = set()  # songs whose old cover gives way to a new one
         self.deleted_dbids: set[int] = set()
         self.state_changed = False
         self._merge_device_changes()
@@ -164,6 +165,11 @@ class EditSession:
             self.art_jobs.append((dbid, cover))
         return song_id
 
+    def set_cover(self, dbid: int, cover: bytes) -> None:
+        """Give a song a new cover (replacing any it has)."""
+        self.art_jobs.append((dbid, cover))
+        self.art_replaced.add(dbid)
+
     def edit_songs(self, song_ids: list[int], changes: dict[str, str | int]) -> int:
         for song_id in song_ids:
             self.editor.update_song(song_id, changes)
@@ -207,12 +213,13 @@ class EditSession:
         links = []
         art_path = self.ipod.control / "Artwork" / "ArtworkDB"
         if (self.art_jobs or self.deleted_dbids) and art_path.is_file():
+            # Old images of replaced covers go (the new ones are only added at commit).
             try:
                 writer = artwork.ArtworkWriter(art_path.parent)
                 if writer.usable:
                     mhits = {s.dbid: s.chunk for s in itunesdb.songs(self.db)}
                     links = [(mhits[d], writer.add(d, c), len(c)) for d, c in self.art_jobs if d in mhits]
-                    writer.remove_for(self.deleted_dbids)
+                    writer.remove_for(self.deleted_dbids | self.art_replaced)
                     writer.commit()
             except (OSError, itunesdb.DatabaseError) as error:
                 self.say(f"Album art was skipped ({error}).")
@@ -233,6 +240,9 @@ class EditSession:
             self.state["tracks"] = {
                 k: v for k, v in self.state["tracks"].items() if int(v["dbid"], 16) not in self.deleted_dbids
             }
+            if "covers" in self.state:
+                self.state["covers"] = {k: v for k, v in self.state["covers"].items()
+                                        if int(k, 16) not in self.deleted_dbids}
             self.state_changed = True
         if self.state_changed:
             save_state(self.ipod, self.state)

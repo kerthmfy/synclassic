@@ -394,6 +394,9 @@ def cmd_ipod(args) -> int:
         say(ipod_sync.eject(ipod, force=args.force))
         return 0
 
+    if action == "art":
+        return _fix_art(ipod, args)
+
     if action == "restore":
         backups = ipod_sync.list_backups(ipod)
         if not backups:
@@ -450,6 +453,33 @@ def cmd_ipod(args) -> int:
         say(ipod_sync.eject(ipod))
     else:
         say("Eject the iPod before unplugging it: synclassic ipod eject")
+    return 0
+
+
+def _fix_art(ipod, args) -> int:
+    from synclassic.ipod import art_fix
+
+    library = open_library()
+    try:
+        say("Checking the covers on the iPod…")
+        albums = art_fix.scan(ipod, library, everything=args.all)
+    finally:
+        library.close()
+    if not albums:
+        say("Every album on the iPod has a sharp cover.")
+        return 0
+    say(f"{len(albums)} albums could look better. Looking for sharp covers…")
+    art_fix.find_covers(albums, progress=lambda n, total, text: say(f"  [{n}/{total}] {text}"))
+    for album in albums:
+        say(f"  {album.title} — {album.artist}: {album.problem} → {album.found}")
+    found = [a for a in albums if a.new_cover]
+    if not found:
+        return 0
+    if not args.apply:
+        say(f"Put {len(found)} sharp covers on the iPod: synclassic ipod art{' --all' if args.all else ''} --apply")
+        return 0
+    count = art_fix.apply(ipod, found, say=say)
+    say(f"New covers for {count} songs.")
     return 0
 
 
@@ -662,13 +692,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("value", nargs="?")
     p.set_defaults(func=cmd_config)
 
-    p = sub.add_parser("ipod", help="iPod: check (default, read-only), sync, restore a backup, eject")
-    p.add_argument("action", nargs="?", default="check", choices=["check", "sync", "restore", "eject"])
+    p = sub.add_parser("ipod", help="iPod: check (default, read-only), sync, restore a backup, eject, art (fix album art)")
+    p.add_argument("action", nargs="?", default="check", choices=["check", "sync", "restore", "eject", "art"])
     p.add_argument("backup", nargs="?", type=int, help="restore: backup number (see 'synclassic ipod restore')")
     p.add_argument("--path", help="the iPod's folder, if it isn't found automatically")
     p.add_argument("--dry-run", action="store_true", help="sync: only show what would change")
     p.add_argument("--yes", action="store_true", help="don't ask for confirmation")
     p.add_argument("--eject", action="store_true", help="sync: eject the iPod afterwards")
+    p.add_argument("--all", action="store_true", help="art: also check covers that can't be measured")
+    p.add_argument("--apply", action="store_true", help="art: put the sharp covers on (default: just list them)")
     p.add_argument("--force", action="store_true", help="eject: even while macOS's device agent holds the iPod")
     p.set_defaults(func=cmd_ipod)
 

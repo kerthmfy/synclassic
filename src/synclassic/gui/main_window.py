@@ -180,6 +180,8 @@ class MainWindow(QMainWindow):
         self.info_action = action("Get Info", self.get_info, QKeySequence("Ctrl+I"))
         self.backups_action = action("Backups…", self.show_backups)
         self.cleanup_action = action("Clean Up…", self.show_cleanup)
+        self.fix_art_action = action("Fix Album Art…", self.show_fix_art, None,
+                                     "Find missing or pixelated covers on the iPod and put sharp ones on")
         self.scrobble_action = action("Scrobble to Last.fm", lambda: self.scrobble_now())
         self.folder_action = action("Show Music Folder", lambda: reveal_in_finder(load_settings().music_path))
         self.settings_action = action("Settings…", self.open_settings, QKeySequence.StandardKey.Preferences)
@@ -195,13 +197,13 @@ class MainWindow(QMainWindow):
     def _build_menus(self) -> None:
         bar = self.menuBar()
         file_menu = bar.addMenu("File")
-        for act in (self.add_action, self.subscribe_action, None, self.update_action, self.podcasts_update_action, self.stop_action, None, self.folder_action, None,
-                    self.settings_action):
+        for act in (self.add_action, self.subscribe_action, None, self.update_action, self.podcasts_update_action, self.stop_action, None, self.folder_action,
+                    self.fix_art_action, None, self.settings_action):
             file_menu.addSeparator() if act is None else file_menu.addAction(act)
         ipod_menu = bar.addMenu("iPod")
         for act in (self.update_sync_action, self.sync_action, None, self.new_ipod_playlist_action,
                     self.import_ipod_playlist_action, self.info_action, None, self.scrobble_action, None,
-                    self.backups_action, self.cleanup_action, self.ipod_action, None, self.eject_action):
+                    self.backups_action, self.cleanup_action, self.fix_art_action, self.ipod_action, None, self.eject_action):
             ipod_menu.addSeparator() if act is None else ipod_menu.addAction(act)
         controls = bar.addMenu("Controls")
         for act in (self.play_action, self.next_action, self.previous_action, None, self.shuffle_action, self.repeat_action):
@@ -502,7 +504,8 @@ class MainWindow(QMainWindow):
         buttons.addStretch(1)
         info.addLayout(buttons)
         maintenance = QHBoxLayout()
-        for text, slot in (("Backups…", self.show_backups), ("Clean Up…", self.show_cleanup)):
+        for text, slot in (("Backups…", self.show_backups), ("Clean Up…", self.show_cleanup),
+                           ("Fix Album Art…", self.show_fix_art)):
             button = QPushButton(text)
             button.clicked.connect(slot)
             maintenance.addWidget(button)
@@ -1331,6 +1334,11 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "No iPod", "Plug in your iPod first.")
             return
         CleanupDialog(self, self.ipod).exec()
+
+    def show_fix_art(self) -> None:
+        from synclassic.gui.art_dialog import ArtFixDialog
+
+        ArtFixDialog(self, self.ipod, self.library_path).exec()  # without an iPod: songs on this Mac
 
     def restore_ipod_backup(self, folder) -> None:
         from synclassic.ipod import manage
