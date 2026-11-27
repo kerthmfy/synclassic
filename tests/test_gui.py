@@ -626,3 +626,17 @@ def test_find_music_from_the_window(app, monkeypatch):
     names = [p.name for p in window.library.playlists()]
     assert "Discovery — Daft Punk" in names and len(started) == 2
     window.close()
+
+
+def test_sync_animation_shows_and_stops(app):
+    from synclassic.gui.main_window import MainWindow
+    from synclassic.gui.sounds import chime_file
+
+    window = MainWindow()
+    window._sync_animation(True)
+    assert window._spin_timer.isActive() and window.ipod_graphic.sync_progress == 0.0
+    window.ipod_graphic.grab()  # the "Do not disconnect." screen draws
+    window._sync_animation(False)
+    assert not window._spin_timer.isActive() and window.ipod_graphic.sync_progress is None
+    assert chime_file().stat().st_size > 50_000
+    window.close()

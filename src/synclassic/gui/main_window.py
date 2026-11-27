@@ -125,6 +125,10 @@ class MainWindow(QMainWindow):
         self.player.counted.connect(lambda item: self._lastfm_send_plays())
         self.mini_player = None
         self.menu_bar_player = None
+        self._syncing = False
+        self._spin_timer = QTimer(self)
+        self._spin_timer.setInterval(40)
+        self._spin_timer.timeout.connect(self._spin)
         self._downloading_episodes: set[int] = set()
         self._cover_cache: dict[int, tuple[float, object]] = {}
 
@@ -685,7 +689,8 @@ class MainWindow(QMainWindow):
         if self.ipod is not None:
             self._add_section("Devices")
             contents = self.ipod_contents
-            self._add_source(contents.name if contents else self.ipod.name, IPOD, "ipod", None, str(self.ipod.root))
+            self._add_source(contents.name if contents else self.ipod.name, IPOD,
+                             "syncing" if self._syncing else "ipod", None, str(self.ipod.root))
             if contents is not None:
                 self._add_source("Music", ("ipod", "music"), "music", depth=1)
                 self._add_source("Albums", ("ipod", "albums"), "albums", depth=1)
@@ -2524,14 +2529,42 @@ class MainWindow(QMainWindow):
                 library.close()
 
         def done(result):
+            self._sync_animation(False)
             self._load_ipod_contents()
+            if load_settings().sync_sound:
+                from synclassic.gui.sounds import play_chime
+
+                play_chime()
             if load_settings().scrobble_after_sync:
                 QTimer.singleShot(50, lambda: self.scrobble_now(quiet=True))
             answer = QMessageBox.question(self, "Sync complete", "Your iPod is synced. Eject it now?")
             if answer == QMessageBox.StandardButton.Yes:
-                self.say(ipod_sync.eject(result["ipod"]))
+                QTimer.singleShot(0, self.eject_ipod)
 
+        self._sync_animation(True)
         self._run_job("Syncing iPod…", work, done, verb="Copying to iPod")
+        self.job.task.progress.connect(
+            lambda n, total, text: self.ipod_graphic.set_syncing(min(1.0, n / total) if total > 0 else 0.0))
+        self.job.failed.connect(lambda error: self._sync_animation(False))
+
+    def _sync_animation(self, on: bool) -> None:
+        """While syncing: the iPod's source-list icon turns into spinning sync arrows, and the iPod
+        drawing says "Do not disconnect." with the progress (as iTunes 7 did)."""
+        self._syncing = on
+        self.ipod_graphic.set_syncing(0.0 if on else None)
+        if on:
+            self._spin_timer.start()
+        else:
+            self._spin_timer.stop()
+        self.refresh()
+
+    def _spin(self) -> None:
+        from synclassic.gui.widgets import SPIN
+
+        SPIN["angle"] = (SPIN["angle"] + 9) % 360
+        self.sidebar.viewport().update()
+        if self.ipod_graphic.isVisible():
+            self.ipod_graphic.update()
 
     def open_settings(self) -> None:
         before = load_settings().folder_layout

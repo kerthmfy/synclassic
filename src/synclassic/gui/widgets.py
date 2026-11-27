@@ -330,7 +330,7 @@ class SourceListDelegate(QStyledItemDelegate):
             painter.setPen(QColor(theme.SELECT_BORDER if active else "#7d8ca3"))
             painter.drawLine(rect.topLeft(), rect.topRight())
         indent = 16 * (index.data(DEPTH_ROLE) or 0)
-        if index.data(ICON_ROLE) == "ipod":  # disclosure triangle: the iPod's contents are listed below
+        if index.data(ICON_ROLE) in ("ipod", "syncing"):  # disclosure triangle: the iPod's contents are below
             triangle = QPainterPath()
             x, y = rect.left() + 7, rect.center().y()
             triangle.moveTo(x, y - 3)
@@ -412,6 +412,12 @@ def draw_source_icon(painter: QPainter, r: QRectF, kind: str) -> None:
             painter.drawEllipse(c, 1.6, 1.6)
             painter.drawArc(QRectF(c.x() - 4.5, c.y() - 4.5, 9, 9), 30 * 16, 120 * 16)
             painter.drawArc(QRectF(c.x() - 4.5, c.y() - 4.5, 9, 9), 210 * 16, 120 * 16)
+    elif kind == "syncing":  # the iPod while syncing: orange disc, turning arrows
+        disc = r.adjusted(0.5, 0.5, -0.5, -0.5)
+        painter.setPen(QPen(QColor("#b35400"), 0.8))
+        painter.setBrush(_gradient(disc, (0, "#ffc06a"), (1, "#e8710a")))
+        painter.drawEllipse(disc)
+        draw_sync_arrows(painter, disc.center(), disc.width() * 0.27, QColor("#ffffff"), SPIN["angle"], 1.6)
     elif kind == "search":
         lens = QRectF(r.left() + 1.5, r.top() + 1.5, 9.5, 9.5)
         painter.setPen(QPen(QColor("#2a5ea8"), 1.6))
@@ -508,6 +514,40 @@ class StatusPillDelegate(QStyledItemDelegate):
 # --- the iPod illustration ---------------------------------------------------------------------
 
 
+SPIN = {"angle": 0.0}  # the turning sync arrows (source list, iPod screen) share one angle
+
+
+def draw_sync_arrows(painter: QPainter, center: QPointF, radius: float, color: QColor, angle: float = 0.0,
+                     width: float | None = None) -> None:
+    """Two curved arrows chasing each other in a circle (the iTunes sync symbol)."""
+    import math
+
+    painter.save()
+    painter.translate(center)
+    painter.rotate(angle)
+    pen = QPen(color, width or max(1.2, radius * 0.32), Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap)
+    painter.setPen(pen)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    arc = QRectF(-radius, -radius, 2 * radius, 2 * radius)
+    for start in (20, 200):
+        painter.drawArc(arc, start * 16, 120 * 16)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(color)
+    head = radius * 0.55
+    for degrees in (20, 200):
+        a = math.radians(degrees)
+        tip = QPointF(math.cos(a) * radius, -math.sin(a) * radius)
+        back = QPointF(math.sin(a), math.cos(a))  # along the arc, backwards
+        out = QPointF(math.cos(a), -math.sin(a))
+        path = QPainterPath()
+        path.moveTo(tip - back * head * 0.6)
+        path.lineTo(tip + back * head * 0.5 + out * head * 0.62)
+        path.lineTo(tip + back * head * 0.5 - out * head * 0.62)
+        path.closeSubpath()
+        painter.drawPath(path)
+    painter.restore()
+
+
 class IPodGraphic(QWidget):
     """A 5.5G iPod (Video) in black, drawn: glossy body, lit screen, click wheel."""
 
@@ -515,18 +555,58 @@ class IPodGraphic(QWidget):
         super().__init__(parent)
         self.name = "iPod"
         self.line = ""
+        self.sync_progress: float | None = None  # syncing: its screen says "Do not disconnect."
         self.setMinimumSize(170, 280)
 
     def set_screen(self, name: str, line: str) -> None:
         self.name, self.line = name, line
         self.update()
 
+    def set_syncing(self, progress: float | None) -> None:
+        self.sync_progress = progress
+        self.update()
+
     def paintEvent(self, event):  # noqa: N802
         painter = QPainter(self)
-        paint_ipod(painter, QRectF(self.rect()).adjusted(10, 10, -10, -10), self.name, self.line, self.font())
+        display = None if self.sync_progress is None else self._sync_screen
+        paint_ipod(painter, QRectF(self.rect()).adjusted(10, 10, -10, -10), self.name, self.line, self.font(),
+                   display=display)
+
+    def _sync_screen(self, painter: QPainter, screen: QRectF) -> None:
+        painter.save()
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(_gradient(screen, (0, "#ffffff"), (1, "#e4e9ef")))
+        painter.drawRect(screen.adjusted(1, 1, -1, -1))
+        radius = screen.height() * 0.2
+        center = QPointF(screen.center().x(), screen.top() + screen.height() * 0.36)
+        painter.setBrush(_gradient(QRectF(center.x() - radius * 1.35, center.y() - radius * 1.35, radius * 2.7,
+                                          radius * 2.7), (0, "#ffb347"), (1, "#e8710a")))
+        painter.drawEllipse(center, radius * 1.35, radius * 1.35)
+        draw_sync_arrows(painter, center, radius * 0.82, QColor("#ffffff"), SPIN["angle"])
+        font = QFont(self.font())
+        font.setPixelSize(max(9, int(screen.height() * 0.11)))
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QColor("#1d1d1d"))
+        painter.drawText(QRectF(screen.left(), screen.top() + screen.height() * 0.62, screen.width(),
+                                screen.height() * 0.14), Qt.AlignmentFlag.AlignCenter, "Do not disconnect.")
+        bar = QRectF(screen.left() + screen.width() * 0.14, screen.top() + screen.height() * 0.82,
+                     screen.width() * 0.72, max(4.0, screen.height() * 0.06))
+        painter.setPen(QPen(QColor("#6d6d6d"), 1))
+        painter.setBrush(QColor("#f7f7f7"))
+        painter.drawRoundedRect(bar, bar.height() / 2, bar.height() / 2)
+        done = QRectF(bar.left(), bar.top(), bar.width() * max(0.0, min(1.0, self.sync_progress or 0)), bar.height())
+        if done.width() > 1:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(_gradient(done, (0, "#8cc0f7"), (0.5, "#3f8ae6"), (1, "#2a76db")))
+            painter.drawRoundedRect(done, bar.height() / 2, bar.height() / 2)
+        painter.restore()
 
 
-def paint_ipod(painter: QPainter, area: QRectF, name: str, line: str, base_font: QFont, shadow: bool = True) -> None:
+def paint_ipod(painter: QPainter, area: QRectF, name: str, line: str, base_font: QFont, shadow: bool = True,
+               display=None) -> None:
+    """Draw a black 5.5G iPod (Video), as large as fits in `area`. `display(painter, screen rect)`
+    draws its screen instead of the name and line."""
     """Draw a black 5.5G iPod (Video), as large as fits in `area`."""
     painter.save()
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -552,23 +632,26 @@ def paint_ipod(painter: QPainter, area: QRectF, name: str, line: str, base_font:
     painter.setPen(QPen(QColor("#000000"), max(1.2, w * 0.008)))
     painter.setBrush(_gradient(screen, (0, "#f6fbff"), (0.18, "#d9ecfb"), (1, "#a9cbe8")))
     painter.drawRect(screen)
-    title_bar = QRectF(screen.left(), screen.top(), screen.width(), screen.height() * 0.16)
-    painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(_gradient(title_bar, (0, "#fdfdfd"), (1, "#c4c9cf")))
-    painter.drawRect(title_bar)
-    font = QFont(base_font)
-    font.setPixelSize(max(8, int(screen.height() * 0.1)))
-    font.setBold(True)
-    painter.setFont(font)
-    painter.setPen(QColor("#111111"))
-    if name:
-        painter.drawText(title_bar, Qt.AlignmentFlag.AlignCenter, name)
-    font.setPixelSize(max(8, int(screen.height() * 0.1)))
-    font.setBold(False)
-    painter.setFont(font)
-    if line:
-        body_text = screen.adjusted(6, title_bar.height() + 6, -6, -6)
-        painter.drawText(body_text, Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, line)
+    if display is not None:
+        display(painter, screen)
+    else:
+        title_bar = QRectF(screen.left(), screen.top(), screen.width(), screen.height() * 0.16)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(_gradient(title_bar, (0, "#fdfdfd"), (1, "#c4c9cf")))
+        painter.drawRect(title_bar)
+        font = QFont(base_font)
+        font.setPixelSize(max(8, int(screen.height() * 0.1)))
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QColor("#111111"))
+        if name:
+            painter.drawText(title_bar, Qt.AlignmentFlag.AlignCenter, name)
+        font.setPixelSize(max(8, int(screen.height() * 0.1)))
+        font.setBold(False)
+        painter.setFont(font)
+        if line:
+            body_text = screen.adjusted(6, title_bar.height() + 6, -6, -6)
+            painter.drawText(body_text, Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, line)
     # Glass: a soft highlight over the upper half of the front.
     upper = QRectF(front.left(), front.top(), front.width(), front.height() * 0.5)
     glass = QPainterPath()

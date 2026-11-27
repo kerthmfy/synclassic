@@ -314,6 +314,9 @@ and still go into the iPod's playlists from the iPod's own copy.
 audio file from your Mac instead (it's copied into your music folder with the song's info and
 cover). **Search All Again** retries every song that wasn't found or failed.
 
+While syncing, the iPod in the source list turns into spinning sync arrows and the iPod drawing
+says "Do not disconnect." with the progress, as in iTunes 7; a chime plays when it's done (Settings).
+
 **Automatic**: Settings → "Update & Sync by itself when the iPod is plugged in" (anything that
 would remove songs or playlists is still shown first), and "Check for new songs in the
 background" (every 3/6/12/24 hours, even with the app closed: a macOS LaunchAgent runs

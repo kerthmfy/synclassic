@@ -69,6 +69,8 @@ class Settings:
     music_videos: bool = False
     # Which country's catalogue Find Music searches (two letters, e.g. US, GB, PH, JP).
     store_country: str = "US"
+    # A chime when a sync finishes.
+    sync_sound: bool = True
 
     @property
     def music_path(self) -> pathlib.Path:
@@ -90,6 +92,7 @@ SETTING_HELP = {
     "skip_on_ipod": "on/off: don't download songs already on the connected iPod",
     "sync_on_connect": "on/off: Update & Sync by itself when the iPod is plugged in (app open)",
     "music_videos": "on/off: also get official music videos, converted for the iPod",
+    "sync_sound": "on/off: a chime when a sync finishes",
     "store_country": "two-letter country code of the catalogue Find Music searches (e.g. US, GB, PH)",
 }
 
@@ -143,7 +146,7 @@ def set_setting(settings: Settings, key: str, value: str) -> None:
         value = value.lower()
         if value not in ("artist", "playlist"):
             raise ValueError("folder_layout must be artist or playlist")
-    elif key in ("full_playlist_reader", "sound_check", "lyrics", "song_info", "skip_on_ipod", "sync_on_connect", "music_videos"):
+    elif key in ("full_playlist_reader", "sound_check", "lyrics", "song_info", "skip_on_ipod", "sync_on_connect", "music_videos", "sync_sound"):
         lowered = value.lower()
         if lowered not in ("on", "off", "true", "false", "yes", "no", "1", "0"):
             raise ValueError(f"{key} must be on or off")

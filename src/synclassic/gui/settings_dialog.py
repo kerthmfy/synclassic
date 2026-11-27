@@ -133,6 +133,9 @@ class SettingsDialog(QDialog):
         self.sync_on_connect.setChecked(self.settings.sync_on_connect)
         self.sync_on_connect.setToolTip("Like iTunes did. Anything that would remove songs or playlists is shown first.")
         form.addRow("", self.sync_on_connect)
+        self.sync_sound = QCheckBox("Play a chime when a sync finishes")
+        self.sync_sound.setChecked(self.settings.sync_sound)
+        form.addRow("", self.sync_sound)
         from synclassic import background
 
         self.background = QComboBox()
@@ -360,6 +363,7 @@ class SettingsDialog(QDialog):
         self.settings.skip_on_ipod = self.skip_on_ipod.isChecked()
         self.settings.music_videos = self.music_videos.isChecked()
         self.settings.sync_on_connect = self.sync_on_connect.isChecked()
+        self.settings.sync_sound = self.sync_sound.isChecked()
         self._apply_background()
         self.settings.folder_layout = self.layout_choice.currentData()
         self.settings.scrobble_after_sync = self.scrobble_after.isChecked()
