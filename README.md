@@ -1,6 +1,6 @@
 # Synclassic
 
-<p align="center"><img src="docs/banner.png" alt="pic" width="60%"></p>
+<p align="center"><img src="docs/banner.png" alt="pic" width="100%"></p>
 
 
 Synclassic reads your playlists (Spotify links, your Spotify account, `.m3u8` files or CSV
@@ -451,6 +451,8 @@ python docs/banner/render.py
 ## AI disclosure
 
 roughly 70-80% of this project were AI assisted with my own supervision and carefully reviewing each of its output. If you're against AI-made tweaks/apps then this is not for you. These were just personal projects of mine that i'd love to share with y'all :)
+
+## License
 
 Licensed under GPL-3.0-or-later. The banner's font is Inter (SIL Open Font License, see
 `docs/banner/fonts/LICENSE.txt`).
