@@ -25,7 +25,24 @@ def main() -> int:
     app.setWindowIcon(app_icon())
     window = MainWindow()
     window.show()
+    from PySide6.QtCore import QTimer
+
+    QTimer.singleShot(800, lambda: _check_tools(window))
     return app.exec()
+
+
+def _check_tools(window) -> None:
+    """ffmpeg and deno come from Homebrew (also for the standalone app): say how to get them."""
+    from PySide6.QtWidgets import QMessageBox
+
+    from synclassic import downloader
+
+    problems = downloader.check_tools()
+    if problems:
+        QMessageBox.information(
+            window, "One more thing",
+            "Synclassic needs two free tools to download music:\n\n" + "\n".join(problems)
+            + "\n\nAll at once, in Terminal: brew install ffmpeg deno\n(Homebrew: https://brew.sh)")
 
 
 def _add_homebrew_to_path() -> None:

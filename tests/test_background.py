@@ -67,3 +67,16 @@ def test_plugging_in_the_ipod_syncs_when_asked(monkeypatch, tmp_path):
     assert synced == [True]
     window._detect_ipod()  # still connected: not again
     window.close()
+
+
+def test_standalone_app_runs_its_own_command_line(monkeypatch):
+    import runpy
+    import sys
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", "/Applications/Synclassic.app/Contents/MacOS/Synclassic")
+    assert background.agent_plist(6)["ProgramArguments"] == [
+        "/Applications/Synclassic.app/Contents/MacOS/Synclassic", "--cli", "update", "--background"]
+    monkeypatch.setattr(sys, "argv", ["Synclassic", "--cli", "background", "status"])
+    entry = runpy.run_path("packaging/synclassic_app.py")
+    assert entry["run"]() == 0

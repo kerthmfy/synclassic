@@ -28,10 +28,17 @@ def log_path() -> pathlib.Path:
     return pathlib.Path.home() / "Library" / "Logs" / "Synclassic-background.log"
 
 
+def _command(python: str | None = None) -> list[str]:
+    """How to run Synclassic's command line: the standalone app's own binary, or this Python."""
+    if getattr(sys, "frozen", False):
+        return [sys.executable, "--cli"]
+    return [python or sys.executable, "-m", "synclassic.cli"]
+
+
 def agent_plist(hours: float, python: str | None = None) -> dict:
     return {
         "Label": LABEL,
-        "ProgramArguments": [python or sys.executable, "-m", "synclassic.cli", "update", "--background"],
+        "ProgramArguments": _command(python) + ["update", "--background"],
         "StartInterval": int(hours * 3600),
         "RunAtLoad": False,
         "ProcessType": "Background",

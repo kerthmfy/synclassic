@@ -397,6 +397,20 @@ mode the audio is copied without re-encoding whenever possible.
   personal listening.
 - Settings, login and the library database live in `~/Library/Application Support/Synclassic`.
 
+## The standalone app (.dmg)
+
+`Synclassic.app` with Python and everything inside, no setup or Terminal needed (only Homebrew's
+ffmpeg and deno, which the app asks for on first launch: `brew install ffmpeg deno`). Two ways
+to make it:
+
+- **On GitHub**: push a version tag (`git tag v0.2 && git push --tags`) or run Actions → **Mac
+  app** → Run workflow. GitHub builds it on a Mac; the `.dmg` is attached to the release (or to
+  the workflow run).
+- **On your Mac**: `packaging/build_mac_app.sh` → `dist/Synclassic.app` and `dist/Synclassic-<version>.dmg`.
+  With Xcode installed, the glass icon (Icon Composer) is compiled in.
+
+The app is signed ad hoc, not notarized: the first time, right-click it → **Open**.
+
 ## Development
 
 ```bash
