@@ -197,6 +197,39 @@ def _match_key(artist: str, title: str) -> tuple[str, str]:
     return normalize(parts[0] if parts else artist), core_title(title)
 
 
+def songs_on_ipod(items: dict[str, LibraryTrack], db: itunesdb.Chunk, state: dict) -> dict[str, int]:
+    """Which library songs are already on the iPod: library key -> the iPod song's dbid.
+    Songs Synclassic put there are known by id; others match by artist, title and length."""
+    songs = itunesdb.songs(db)
+    by_dbid = {s.dbid: s for s in songs}
+    by_text: dict[tuple[str, str], list[itunesdb.SongView]] = {}
+    for song in songs:
+        if song.media_type in (0, 1):
+            by_text.setdefault(_match_key(song.artist, song.title), []).append(song)
+    found: dict[str, int] = {}
+    for key, item in items.items():
+        known = state["tracks"].get(key)
+        if known and int(known["dbid"], 16) in by_dbid:
+            found[key] = int(known["dbid"], 16)
+            continue
+        duration = item.track.duration_ms
+        best = None
+        for song in by_text.get(_match_key(item.track.artist, item.track.title), []):
+            diff = abs(song.length_ms - duration) if duration and song.length_ms else 0
+            if diff <= 4000 and (best is None or diff < best[0]):
+                best = (diff, song)
+        if best:
+            found[key] = best[1].dbid
+    return found
+
+
+def library_keys_on_ipod(library: Library, ipod: IPod) -> set[str]:
+    """Keys of the library's songs that are on this iPod (for showing it, and skipping downloads)."""
+    db = itunesdb.parse(ipod.database_path.read_bytes())
+    items = {item.key: item for item in library.tracks_in_playlists()}
+    return set(songs_on_ipod(items, db, load_state(ipod)))
+
+
 def make_plan(library: Library, ipod: IPod, db: itunesdb.Chunk | None = None) -> Plan:
     db = db if db is not None else itunesdb.parse(ipod.database_path.read_bytes())
     state = load_state(ipod)
@@ -208,10 +241,6 @@ def make_plan(library: Library, ipod: IPod, db: itunesdb.Chunk | None = None) ->
 
     songs = itunesdb.songs(db)
     by_dbid = {s.dbid: s for s in songs}
-    by_text: dict[tuple[str, str], list[itunesdb.SongView]] = {}
-    for song in songs:
-        if song.media_type in (0, 1):
-            by_text.setdefault(_match_key(song.artist, song.title), []).append(song)
 
     # Every song in a playlist, downloaded or not: a song that's already on the iPod doesn't
     # need a downloaded file to be put in a playlist.
@@ -220,20 +249,9 @@ def make_plan(library: Library, ipod: IPod, db: itunesdb.Chunk | None = None) ->
         for item in library.playlist_tracks(playlist):
             wanted.setdefault(item.key, item)
 
+    plan.reuse = songs_on_ipod(wanted, db, state)
     for key, item in wanted.items():
-        known = state["tracks"].get(key)
-        if known and int(known["dbid"], 16) in by_dbid:
-            plan.reuse[key] = int(known["dbid"], 16)
-            continue
-        candidates = by_text.get(_match_key(item.track.artist, item.track.title), [])
-        duration = item.track.duration_ms
-        best = None
-        for song in candidates:
-            diff = abs(song.length_ms - duration) if duration and song.length_ms else 0
-            if diff <= 4000 and (best is None or diff < best[0]):
-                best = (diff, song)
-        if best:
-            plan.reuse[key] = best[1].dbid
+        if key in plan.reuse:
             continue
         if not (item.has_file and item.status in ("downloaded", "review", "local")):
             plan.not_ready.add(key)  # not downloaded yet (or not found on YouTube)

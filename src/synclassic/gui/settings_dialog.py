@@ -119,6 +119,11 @@ class SettingsDialog(QDialog):
         self.song_info = QCheckBox("Fill in genre and year (from Deezer / Apple Music) when Spotify doesn't give them")
         self.song_info.setChecked(self.settings.song_info)
         form.addRow("", self.song_info)
+        self.skip_on_ipod = QCheckBox("Don't download songs that are already on my iPod (they're synced from there)")
+        self.skip_on_ipod.setChecked(self.settings.skip_on_ipod)
+        self.skip_on_ipod.setToolTip("Saves time and space. Those songs won't be on this Mac, so you can't play "
+                                     "them here, and they'd need downloading for another iPod.")
+        form.addRow("", self.skip_on_ipod)
         self.full_reader = QCheckBox("Read playlists over 100 songs in full from Spotify's web page")
         self.full_reader.setChecked(self.settings.full_playlist_reader)
         self.full_reader.setToolTip(
@@ -313,6 +318,7 @@ class SettingsDialog(QDialog):
         self.settings.sound_check = self.sound_check.isChecked()
         self.settings.lyrics = self.lyrics.isChecked()
         self.settings.song_info = self.song_info.isChecked()
+        self.settings.skip_on_ipod = self.skip_on_ipod.isChecked()
         self.settings.folder_layout = self.layout_choice.currentData()
         self.settings.scrobble_after_sync = self.scrobble_after.isChecked()
         from synclassic import lastfm

@@ -109,6 +109,7 @@ class MainWindow(QMainWindow):
         self.ipod = None  # the connected iPod, if any
         self._ipod_root = None
         self.ipod_contents = None  # what's on it (synclassic.ipod.browse.Contents), loaded in the background
+        self.on_ipod_keys: set[str] = set()  # library songs that are on the connected iPod
         self._backed_up: set = set()  # iPods backed up this session (edits back up once per session)
         self._pending_key = None  # a source to select as soon as it appears (e.g. a new iPod playlist)
         self._playing_key = None
@@ -389,7 +390,7 @@ class MainWindow(QMainWindow):
         self.table.setUniformRowHeights(True)
         self.table.setFrameShape(QFrame.Shape.NoFrame)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.table.setHeaderLabels(["#", "Name", "Artist", "Album", "Time", "Status"])
+        self.table.setHeaderLabels(["#", "Name", "Artist", "Album", "Time", "Status", ""])
         self.table.setItemDelegateForColumn(5, StatusPillDelegate(self.table))
         header = self.table.header()
         header.setStretchLastSection(False)
@@ -399,6 +400,9 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
         header.resizeSection(5, 118)
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
+        header.resizeSection(6, 28)
+        self.table.headerItem().setToolTip(6, "On your iPod")
         self.table.itemDoubleClicked.connect(lambda *_: self._library_double_clicked())
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._table_menu)
@@ -749,9 +753,12 @@ class MainWindow(QMainWindow):
                 i for i in self.library.tracks_in_playlists() if i.status in ATTENTION_STATUSES
             ]
             self.title.setText("Needs Attention")
-            self.subtitle.setText("Double-click a song to listen to the choices and pick the right version.")
+            self.subtitle.setText("Double-click a song to listen to the choices and pick the right version. "
+                                  "Not on YouTube? Right-click → Use My Own File…")
             self.note.hide()
-            self.update_one.hide()
+            self.update_one.setText("Search All Again")
+            self.update_one.show()
+            self.update_one.setEnabled(self.job is None)
         else:
             playlist = self._current_playlist()
             if playlist is None:
@@ -763,6 +770,7 @@ class MainWindow(QMainWindow):
             self.subtitle.setText(f"{len(items)} songs · {length} · {playlist.spec.describe()}")
             self.note.setText(playlist.note or "")
             self.note.setVisible(bool(playlist.note))
+            self.update_one.setText("Update Playlist")
             self.update_one.show()
             self.update_one.setEnabled(self.job is None)
         self._fill_table(items)
@@ -778,9 +786,15 @@ class MainWindow(QMainWindow):
             label = STATUS.get(state, state)
             if item.manual and state == "downloaded":
                 label = "Your pick"
+            on_ipod = item.key in self.on_ipod_keys
+            if on_ipod and state == "pending":
+                label = "On iPod"  # nothing to download: it's synced from the iPod's copy
             row = QTreeWidgetItem([str(number), track.title, track.artist, track.album,
                                    fmt_time((track.duration_ms or 0) / 1000), label])
             row.setData(0, Qt.ItemDataRole.UserRole, item.id)
+            if on_ipod:
+                row.setIcon(6, self._ipod_icon())
+                row.setToolTip(6, "On your iPod")
             row.setTextAlignment(0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             row.setForeground(0, Qt.GlobalColor.gray)
             if self._playing_key == ("lib", item.id):
@@ -1094,6 +1108,23 @@ class MainWindow(QMainWindow):
                 reveal_in_finder(self.ipod.root / song.path)
 
     # --- playback ----------------------------------------------------------------------------------
+
+    def _ipod_icon(self):
+        if not hasattr(self, "_ipod_icon_cache"):
+            from PySide6.QtCore import QRectF
+            from PySide6.QtGui import QIcon, QPainter, QPixmap
+
+            from synclassic.gui.widgets import draw_source_icon
+
+            pixmap = QPixmap(32, 32)
+            pixmap.setDevicePixelRatio(2)
+            pixmap.fill(Qt.GlobalColor.transparent)
+            painter = QPainter(pixmap)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            draw_source_icon(painter, QRectF(0, 0, 16, 16), "ipod")
+            painter.end()
+            self._ipod_icon_cache = QIcon(pixmap)
+        return self._ipod_icon_cache
 
     def _speaker_icon(self):
         from PySide6.QtGui import QIcon
@@ -1556,21 +1587,38 @@ class MainWindow(QMainWindow):
         ipod = self.ipod
         if ipod is None:
             self.ipod_contents = None
+            self.on_ipod_keys = set()
             return
         from synclassic.ipod import browse
 
-        def done(contents):
+        path = self.library_path
+
+        def read(task):
+            from synclassic.ipod.sync import library_keys_on_ipod
+
+            contents = browse.read(ipod)
+            library = Library(path)
+            try:
+                keys = library_keys_on_ipod(library, ipod)
+            except Exception:
+                keys = set()
+            finally:
+                library.close()
+            return contents, keys
+
+        def done(result):
+            contents, keys = result
             if self.ipod is not ipod:
                 return
             self.ipod_contents = contents
+            self.on_ipod_keys = keys
             self.albums_page.set_contents(contents)
             self.artists_page.set_contents(contents)
             self.genres_page.set_contents(contents)
             self.refresh()
             self._load_covers(ipod, contents)
 
-        run_in_background(self, lambda task: browse.read(ipod), done,
-                          lambda error: self.say(f"Couldn't read the iPod's music: {error}"))
+        run_in_background(self, read, done, lambda error: self.say(f"Couldn't read the iPod's music: {error}"))
 
     def _load_covers(self, ipod, contents) -> None:
         from PySide6.QtGui import QImage
@@ -1906,6 +1954,7 @@ class MainWindow(QMainWindow):
         self._ipod_root = root
         self.ipod = ipod
         self.ipod_contents = None
+        self.on_ipod_keys = set()
         if ipod is None and (self.current_key == IPOD or isinstance(self.current_key, tuple)):
             self.current_key = None
         self.refresh()
@@ -2047,6 +2096,9 @@ class MainWindow(QMainWindow):
         pick = menu.addAction("Choose version…")
         pick.setEnabled(len(ids) == 1)
         retry = menu.addAction("Search again automatically")
+        own = menu.addAction("Use My Own File…")
+        own.setEnabled(len(ids) == 1)
+        own.setToolTip("For a song YouTube doesn't have: use an audio file from your Mac")
         menu.addSeparator()
         reveal = menu.addAction("Show in Finder")
         item = self.library.track(ids[0])
@@ -2059,8 +2111,29 @@ class MainWindow(QMainWindow):
                 self.library.update_track(track_id, status="pending", manual=False, error=None)
             self.refresh()
             self.start_update(self._playlist_ids_for_view(), refresh_sources=False)
+        elif chosen == own and item is not None:
+            self.use_own_file(item)
         elif chosen == reveal and item and item.file_path:
             reveal_in_finder(pathlib.Path(item.file_path))
+
+    def use_own_file(self, item) -> None:
+        from PySide6.QtWidgets import QFileDialog
+
+        from synclassic.update import OWN_FILE_TYPES, use_own_file
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, f"Choose a file for “{item.track.display()}”", str(pathlib.Path.home() / "Music"),
+            "Audio (" + " ".join(f"*{ext}" for ext in OWN_FILE_TYPES) + ")")
+        if not path:
+            return
+        try:
+            saved = use_own_file(self.library, item, pathlib.Path(path), load_settings())
+        except (OSError, ValueError) as error:
+            QMessageBox.warning(self, "Couldn't use that file", str(error))
+            return
+        finalize(self.library)
+        self.say(f"{item.track.display()}: using your file ({saved.name})")
+        self.refresh()
 
     def _sidebar_menu(self, position) -> None:
         row = self.sidebar.itemAt(position)
@@ -2310,6 +2383,13 @@ class MainWindow(QMainWindow):
         self._run_job("Adding…", work, done)
 
     def _update_current(self) -> None:
+        if self.current_key == ATTENTION:  # Search All Again
+            for item in self.library.tracks_in_playlists():
+                if item.status in ("unmatched", "failed"):
+                    self.library.update_track(item.id, status="pending", error=None)
+            self.refresh()
+            self.start_update(None, refresh_sources=False)
+            return
         if self.current_key not in SPECIAL:
             self.start_update([self.current_key])
 
@@ -2491,11 +2571,15 @@ def _download(library: Library, task: Task, playlists: list[LibraryPlaylist], re
         task.progress.emit(number, total, item.track.display())
         task.changed.emit()
 
+    from synclassic.update import keys_on_connected_ipod
+
     report = download_missing(
         library, settings, task.say, retry_failed=retry_failed, only=playlists,
-        progress=progress, should_stop=task.should_stop,
+        progress=progress, should_stop=task.should_stop, skip_keys=keys_on_connected_ipod(library, settings),
     )
     parts = []
+    if report.on_ipod:
+        task.say(f"{report.on_ipod} songs weren't downloaded: they're already on your iPod.")
     if report.downloaded:
         parts.append(f"{report.downloaded} downloaded")
     if report.review:

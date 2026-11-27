@@ -278,6 +278,14 @@ genre and year from Deezer's catalogue (Apple Music's as a fallback); the iPod's
 then works. **Fill In Genres & Years…** (File or iPod menu, or `synclassic info`) does the same
 for songs you already have, on this Mac and on the iPod; nothing already filled in changes.
 
+**Songs already on your iPod** show a small iPod in the song list. With Settings → "Don't
+download songs that are already on my iPod", they aren't downloaded at all (they show "On iPod")
+and still go into the iPod's playlists from the iPod's own copy.
+
+**Not on YouTube?** In Needs Attention, right-click a song → **Use My Own File…** to use an
+audio file from your Mac instead (it's copied into your music folder with the song's info and
+cover). **Search All Again** retries every song that wasn't found or failed.
+
 **Fix Album Art…** (iPod menu, File menu, or `synclassic ipod art`): finds albums whose cover
 is missing or small enough to look pixelated (under 300 px), on the iPod and among the songs
 on your Mac, and looks for sharp ones: the album's Spotify cover for songs Synclassic

@@ -191,7 +191,12 @@ def run_update(
     if download:
         say("")
         say(f"Saving music to {settings.music_path} as {settings.format.upper()}")
-        report = download_missing(library, settings, say, retry_failed=retry_failed, only=playlists)
+        from synclassic.update import keys_on_connected_ipod
+
+        report = download_missing(library, settings, say, retry_failed=retry_failed, only=playlists,
+                                  skip_keys=keys_on_connected_ipod(library, settings))
+        if report.on_ipod:
+            say(f"{report.on_ipod} songs weren't downloaded: they're already on your iPod.")
         print_download_report(report)
         if not (report.downloaded or report.review or report.unmatched or report.failed or report.stopped_early):
             say("Everything is already downloaded.")

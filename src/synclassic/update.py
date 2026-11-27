@@ -36,6 +36,21 @@ class DownloadReport:
     unmatched: int = 0
     failed: int = 0
     stopped_early: str = ""
+    on_ipod: int = 0  # not downloaded: already on the iPod
+
+
+def keys_on_connected_ipod(library: Library, settings: Settings) -> set[str] | None:
+    """With "skip songs already on the iPod" on and an iPod connected: the songs it has."""
+    if not settings.skip_on_ipod:
+        return None
+    from synclassic.ipod.device import find_ipods
+    from synclassic.ipod.sync import library_keys_on_ipod
+
+    try:
+        ipods = find_ipods()
+        return library_keys_on_ipod(library, ipods[0]) if ipods else None
+    except Exception:  # an unreadable iPod just means nothing is skipped
+        return None
 
 
 def refresh_playlist(
@@ -278,8 +293,9 @@ def download_missing(
     only: list[LibraryPlaylist] | None = None,
     progress: Callable[[int, int, LibraryTrack], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
+    skip_keys: set[str] | None = None,
 ) -> DownloadReport:
-    """Match and download every song that needs it.
+    """Match and download every song that needs it (except songs in `skip_keys`: already on the iPod).
 
     `progress(number, total, item)` is called before each song and once more with
     number == total + 1 at the end; `should_stop()` is checked between songs.
@@ -297,6 +313,9 @@ def download_missing(
     else:
         items = library.tracks_in_playlists()
     work = [item for item in items if needs_work(item, retry_failed)]
+    if skip_keys:
+        report.on_ipod = sum(1 for item in work if item.key in skip_keys)
+        work = [item for item in work if item.key not in skip_keys]
     if not work:
         return report
     problems = downloader.check_tools()
@@ -341,6 +360,38 @@ def _pause(seconds: float, should_stop: Callable[[], bool] | None) -> None:
         if should_stop and should_stop():
             return
         time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
+
+
+OWN_FILE_TYPES = (".m4a", ".mp3", ".aac", ".wav", ".aif", ".aiff")
+
+
+def use_own_file(library: Library, item: LibraryTrack, source: pathlib.Path, settings: Settings) -> pathlib.Path:
+    """Use a file you have (e.g. a song YouTube doesn't have) for a song: it's copied into the
+    music folder, given the song's info and cover, and marked as your pick."""
+    import shutil
+
+    suffix = source.suffix.lower()
+    if suffix not in OWN_FILE_TYPES:
+        raise ValueError(f"The iPod can't play {suffix} files.")
+    destination = target_path(settings.music_path, item).with_suffix(suffix)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if source.resolve() != destination.resolve():
+        shutil.copyfile(source, destination)
+    if suffix in (".m4a", ".mp3"):
+        cover = artwork.best_cover([item.track.cover_url], fetch=tagging.fetch_cover) if item.track.cover_url else None
+        cover = cover or _cover_inside(destination)
+        tagging.tag_file(destination, item.track, cover)
+    if item.file_path and pathlib.Path(item.file_path) != destination and pathlib.Path(item.file_path).is_file():
+        pathlib.Path(item.file_path).unlink()
+    library.update_track(item.id, status="downloaded", file_path=str(destination), video_id=None, manual=True,
+                         match_score=None, match_notes="your own file", error=None, downloaded_at=now())
+    return destination
+
+
+def _cover_inside(path: pathlib.Path) -> bytes | None:
+    from synclassic.ipod.artwork import embedded_cover
+
+    return embedded_cover(path)
 
 
 def finalize(library: Library, settings: Settings | None = None) -> None:
