@@ -41,18 +41,21 @@
 @font-face { font-family: "Banner"; font-weight: 700; src: url("fonts/Inter-Bold.woff2") format("woff2"); }
 @font-face { font-family: "Banner Display"; font-weight: 800; src: url("fonts/InterDisplay-ExtraBold.woff2") format("woff2"); }
 
+/* For the PDF route of render.py: one page, exactly the banner, colours as on screen. */
+@page { size: 1280px 640px; margin: 0; }
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { width: 1280px; height: 640px; overflow: hidden; }
 body {
   position: relative;
   font-family: "Banner", -apple-system, "Helvetica Neue", sans-serif;
   -webkit-font-smoothing: antialiased;
-  background:
-    radial-gradient(900px 520px at 82% 42%, var(--glow), rgba(120, 170, 235, 0) 70%),
-    radial-gradient(600px 400px at 8% 0%, rgba(255, 255, 255, .9), rgba(255, 255, 255, 0) 70%),
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, .22) 0 1px, rgba(0, 0, 0, 0) 1px 3px),
-    linear-gradient(180deg, var(--sky-top) 0%, var(--sky-middle) 60%, var(--sky-bottom) 100%);
 }
+/* The background is drawn by the script at the bottom (from the colours above), so it looks
+   the same in the PNG whichever way render.py captures the page. */
+.sky { position: absolute; inset: 0; width: 1280px; height: 640px;
+       background: linear-gradient(180deg, var(--sky-top), var(--sky-bottom)); }
 
 /* Left: icon, name, tagline, chips. */
 .left { position: absolute; left: var(--text-left); top: var(--text-top); width: var(--text-width); }
@@ -102,6 +105,7 @@ h1 {
 </style>
 </head>
 <body>
+<canvas class="sky" width="2560" height="1280"></canvas>
 
 <div class="left">
   <div class="brand">
@@ -134,5 +138,42 @@ h1 {
 
 <img class="ipod" src="ipod.png" alt="">
 
+<script>
+// The background: a soft sky gradient, fine Aqua pinstripes, a white light in the top left and
+// a blue glow behind the window. Colours come from the variables at the top of the page.
+(function () {
+  const canvas = document.querySelector("canvas.sky");
+  const ctx = canvas.getContext("2d");
+  const css = getComputedStyle(document.documentElement);
+  const v = (name) => css.getPropertyValue(name).trim();
+  const W = 1280, H = 640;
+  ctx.scale(canvas.width / W, canvas.height / H);
+
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, v("--sky-top"));
+  sky.addColorStop(0.6, v("--sky-middle"));
+  sky.addColorStop(1, v("--sky-bottom"));
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = "rgba(255, 255, 255, .22)";            // pinstripes: 1 px every 3 px
+  for (let y = H - 1; y >= 0; y -= 3) ctx.fillRect(0, y, W, 1);
+
+  function light(cx, cy, rx, ry, color, clear) {        // an elliptical light fading out at 70 %
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(1, ry / rx);
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
+    g.addColorStop(0, color);
+    g.addColorStop(0.7, clear);
+    g.addColorStop(1, clear);
+    ctx.fillStyle = g;
+    ctx.fillRect(-rx, -rx, rx * 2, rx * 2);
+    ctx.restore();
+  }
+  light(W * 0.08, 0, 600, 400, "rgba(255, 255, 255, .9)", "rgba(255, 255, 255, 0)");
+  light(W * 0.82, H * 0.42, 900, 520, v("--glow"), "rgba(120, 170, 235, 0)");
+})();
+</script>
 </body>
 </html>
