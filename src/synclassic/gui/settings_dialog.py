@@ -124,6 +124,11 @@ class SettingsDialog(QDialog):
         self.skip_on_ipod.setToolTip("Saves time and space. Those songs won't be on this Mac, so you can't play "
                                      "them here, and they'd need downloading for another iPod.")
         form.addRow("", self.skip_on_ipod)
+        self.music_videos = QCheckBox("Also get each song's official music video, converted for the iPod")
+        self.music_videos.setChecked(self.settings.music_videos)
+        self.music_videos.setToolTip("Videos > Music Videos on the iPod. About 30-50 MB per video and a minute or two "
+                                     "to convert each. Needs ffmpeg with H.264 (Homebrew's has it).")
+        form.addRow("", self.music_videos)
         self.sync_on_connect = QCheckBox("Update && Sync by itself when the iPod is plugged in")
         self.sync_on_connect.setChecked(self.settings.sync_on_connect)
         self.sync_on_connect.setToolTip("Like iTunes did. Anything that would remove songs or playlists is shown first.")
@@ -353,6 +358,7 @@ class SettingsDialog(QDialog):
         self.settings.lyrics = self.lyrics.isChecked()
         self.settings.song_info = self.song_info.isChecked()
         self.settings.skip_on_ipod = self.skip_on_ipod.isChecked()
+        self.settings.music_videos = self.music_videos.isChecked()
         self.settings.sync_on_connect = self.sync_on_connect.isChecked()
         self._apply_background()
         self.settings.folder_layout = self.layout_choice.currentData()

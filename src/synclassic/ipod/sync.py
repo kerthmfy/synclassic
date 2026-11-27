@@ -116,6 +116,8 @@ class Plan:
     to_measure: int = 0  # songs whose loudness isn't known yet
     artwork_ok: bool = False  # the iPod's artwork database can be updated
     podcasts: podcast_sync.PodcastPlan = field(default_factory=podcast_sync.PodcastPlan)
+    videos: list[tuple[str, LibraryTrack, pathlib.Path]] = field(default_factory=list)  # music videos to copy
+    remove_videos: list[tuple[str, itunesdb.SongView]] = field(default_factory=list)
 
     @property
     def has_changes(self) -> bool:
@@ -123,6 +125,7 @@ class Plan:
             self.copy or self.remove_songs or self.remove_playlists or self.play_counts_pending
             or any(not p.unchanged and p.action != "wait" for p in self.playlists)
             or (self.artwork_ok and bool(self.art_backfill)) or self.podcasts.has_changes or bool(self.soundcheck)
+            or bool(self.videos) or bool(self.remove_videos)
         )
 
     @property
@@ -131,11 +134,11 @@ class Plan:
 
     @property
     def total_to_copy(self) -> int:
-        return self.bytes_to_copy + self.podcasts.bytes_to_copy
+        return self.bytes_to_copy + self.podcasts.bytes_to_copy + sum(p.stat().st_size for _, _, p in self.videos)
 
     @property
     def total_to_free(self) -> int:
-        return self.bytes_to_free + self.podcasts.bytes_to_free
+        return self.bytes_to_free + self.podcasts.bytes_to_free + sum(s.size for _, s in self.remove_videos)
 
     def summary(self) -> list[str]:
         gb = 1000**3
@@ -177,6 +180,10 @@ class Plan:
         if self.to_measure:
             lines.append(f"  Measure the loudness of {self.to_measure} songs for Sound Check (once; about "
                          f"{max(1, round(self.to_measure * 0.4 / 60))} min)")
+        if self.videos:
+            lines.append(f"  Copy {len(self.videos)} music video{'s' if len(self.videos) != 1 else ''}")
+        if self.remove_videos:
+            lines.append(f"  Remove {len(self.remove_videos)} music videos of songs no playlist has any more")
         lines += self.podcasts.summary()
         if self.play_counts_pending:
             lines.append("  Save plays, skips and ratings from the iPod")
@@ -351,6 +358,23 @@ def make_plan(library: Library, ipod: IPod, db: itunesdb.Chunk | None = None) ->
                 plan.soundcheck.append((dbid, item))
         paths = [pathlib.Path(i.file_path) for _, i in plan.soundcheck] + [pathlib.Path(i.file_path) for i in plan.copy]  # type: ignore[arg-type]
         plan.to_measure = sum(1 for p in paths if not cache.known(p)[0])
+    # Music videos of the playlists' songs (when that option is on).
+    known_videos = state.setdefault("videos", {})
+    if load_settings().music_videos:
+        from synclassic.videos import Videos
+
+        videos = Videos(library)
+        for key, item in wanted.items():
+            entry = known_videos.get(key)
+            if entry and int(entry["dbid"], 16) in by_dbid:
+                continue
+            path = videos.path_for(item.id)
+            if path is not None:
+                plan.videos.append((key, item, path))
+    for key, entry in known_videos.items():
+        song = by_dbid.get(int(entry["dbid"], 16))
+        if song is not None and key not in wanted:
+            plan.remove_videos.append((key, song))
     plan.podcasts = podcast_sync.plan(library, ipod, db, state)
     return plan
 
@@ -541,6 +565,25 @@ def apply_plan(
                 info.soundcheck = loudness.soundcheck(source)
             _, dbid = editor.add_song(info)
             new_dbids[item.key] = dbid
+        new_videos: dict[str, int] = {}
+        for number, (key, item, source) in enumerate(plan.videos, start=1):
+            if should_stop and should_stop():
+                raise SyncError("Stopped before the database was changed. Nothing on the iPod was changed.")
+            target = _new_ipod_path(ipod, ".m4v", folders)
+            say(f"[{number}/{len(plan.videos)}] Copying music video {item.track.display()}")
+            if progress:
+                progress(number, len(plan.videos), f"Video: {item.track.display()}")
+            tmp = target.with_name(target.name + ".part")
+            shutil.copyfile(source, tmp)
+            if tmp.stat().st_size != source.stat().st_size:
+                raise SyncError(f"Copy of {source.name} didn't verify.")
+            os.replace(tmp, target)
+            copied_files.append(target)
+            location = ":" + target.relative_to(ipod.root).as_posix().replace("/", ":")
+            info = song_info(target, item, location)
+            info.filetype, info.music_video, info.lyrics = "m4v", True, False
+            _, dbid = editor.add_song(info)
+            new_videos[key] = dbid
         new_episodes: dict[str, int] = {}
         episode_files: dict[int, pathlib.Path] = {}
         episodes = plan.podcasts.copy
@@ -605,7 +648,8 @@ def apply_plan(
         state["playlists"].pop(key, None)
 
     # 4. Remove songs nothing needs any more.
-    removed = {song.id for song in plan.remove_songs} | {song.id for song in plan.podcasts.remove}
+    removed = ({song.id for song in plan.remove_songs} | {song.id for song in plan.podcasts.remove}
+               | {song.id for _, song in plan.remove_videos})
     editor.remove_songs(removed)
     # Smart playlists Synclassic keeps: their songs refreshed (the iPod keeps them live after).
     from synclassic.ipod import smart
@@ -624,7 +668,7 @@ def apply_plan(
     if itunesdb.serialize(check_db) != data:
         raise SyncError("The new database didn't verify; nothing was changed. (Copied songs were left in place.)")
     final_songs = itunesdb.songs(check_db)
-    expected = len(songs_before) + len(plan.copy) + len(new_episodes) - len(removed)
+    expected = len(songs_before) + len(plan.copy) + len(new_episodes) + len(new_videos) - len(removed)
     if len(final_songs) != expected:
         raise SyncError("The new database has the wrong number of songs; nothing was changed.")
     for song in final_songs:
@@ -634,7 +678,7 @@ def apply_plan(
     _write_atomically(ipod.database_path, data)
 
     # 7. Clean up: old files, merged play counts, On-The-Go files; remember what we manage.
-    for song in [*plan.remove_songs, *plan.podcasts.remove]:
+    for song in [*plan.remove_songs, *plan.podcasts.remove, *(s for _, s in plan.remove_videos)]:
         (ipod.root / song.relative_path).unlink(missing_ok=True)
     if counts_file is not None and counts_file.is_file():
         counts_file.unlink()
@@ -648,6 +692,11 @@ def apply_plan(
     removed_dbids = {song.dbid for song in plan.remove_songs}
     state["tracks"] = {k: v for k, v in state["tracks"].items() if int(v["dbid"], 16) not in removed_dbids}
     podcast_sync.remember(state, plan.podcasts, new_episodes)
+    videos_state = state.setdefault("videos", {})
+    for key, _ in plan.remove_videos:
+        videos_state.pop(key, None)
+    for key, dbid in new_videos.items():
+        videos_state[key] = {"dbid": f"{dbid:016x}"}
     state["last_sync"] = datetime.datetime.now().isoformat(timespec="seconds")
     save_state(ipod, state)
     if hasattr(os, "sync"):

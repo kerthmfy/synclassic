@@ -64,6 +64,8 @@ class Settings:
     lastfm_live: bool = True
     # A music note in the macOS menu bar with the current song and controls.
     menu_bar_player: bool = True
+    # Also get each song's official music video, converted for the iPod (Videos > Music Videos).
+    music_videos: bool = False
 
     @property
     def music_path(self) -> pathlib.Path:
@@ -84,6 +86,7 @@ SETTING_HELP = {
     "song_info": "on/off: fill in genre and year from Deezer / Apple Music",
     "skip_on_ipod": "on/off: don't download songs already on the connected iPod",
     "sync_on_connect": "on/off: Update & Sync by itself when the iPod is plugged in (app open)",
+    "music_videos": "on/off: also get official music videos, converted for the iPod",
 }
 
 
@@ -136,7 +139,7 @@ def set_setting(settings: Settings, key: str, value: str) -> None:
         value = value.lower()
         if value not in ("artist", "playlist"):
             raise ValueError("folder_layout must be artist or playlist")
-    elif key in ("full_playlist_reader", "sound_check", "lyrics", "song_info", "skip_on_ipod", "sync_on_connect"):
+    elif key in ("full_playlist_reader", "sound_check", "lyrics", "song_info", "skip_on_ipod", "sync_on_connect", "music_videos"):
         lowered = value.lower()
         if lowered not in ("on", "off", "true", "false", "yes", "no", "1", "0"):
             raise ValueError(f"{key} must be on or off")

@@ -2582,6 +2582,8 @@ class MainWindow(QMainWindow):
                                 task.say(f"    − {title}")
                         task.changed.emit()
                 result = _download(library, task, playlists, retry_failed)
+                if load_settings().music_videos and not task.should_stop():
+                    _get_videos(library, task, playlists)
                 finalize(library)
                 return result
             finally:
@@ -2712,6 +2714,16 @@ def _update_podcasts(library: Library, task: Task, podcast_ids: list[int] | None
                if new or downloaded else "Podcasts are up to date.")
     task.say(summary)
     return summary
+
+
+def _get_videos(library: Library, task: Task, playlists: list[LibraryPlaylist]) -> None:
+    from synclassic.videos import Videos
+
+    items = {item.id: item for playlist in playlists for item in library.playlist_tracks(playlist)}
+    report = Videos(library).update(load_settings(), say=task.say, progress=task.progress.emit,
+                                    should_stop=task.should_stop, items=list(items.values()))
+    if report.found or report.failed:
+        task.say(f"Music videos: {report.found} new" + (f", {report.failed} failed" if report.failed else ""))
 
 
 def _spotify_client(task: Task) -> SpotifyClient | None:

@@ -31,6 +31,7 @@ def mac_time(unix: float | None = None) -> int:
 FILETYPES = {
     "m4a": (0x4D344120, "AAC audio file", 0x33),  # "M4A "
     "m4b": (0x4D344220, "AAC audio file", 0x33),  # "M4B ": audiobooks
+    "m4v": (0x4D345620, "MPEG-4 video file", 0),  # "M4V ": music videos
     "mp3": (0x4D503320, "MPEG audio file", 0x0C),  # "MP3 "
     "wav": (0x57415620, "WAV audio file", 0),
     "aif": (0x41494646, "AIFF audio file", 0),
@@ -74,6 +75,7 @@ class NewSong:
     soundcheck: int = 0  # the iPod's Sound Check value (0 = unknown)
     lyrics: bool = False  # the file has lyrics inside
     audiobook: bool = False  # Music > Audiobooks: remembers its position, not shuffled
+    music_video: bool = False  # Videos > Music Videos
 
 
 PODCAST_PLAYLIST_FLAG = 0x01  # mhyp +0x2A bit 0: the Podcasts playlist
@@ -212,8 +214,11 @@ class Editor:
         if length > 0xB0 and song.lyrics:
             mhit.set_u8(0xB0, 1)  # the iPod shows the lyrics inside the file
         if length >= 0xD4:
-            kind = ((0x06 if song.video else 0x04) if song.podcast else 0x08 if song.audiobook else 1)
+            kind = ((0x06 if song.video else 0x04) if song.podcast else 0x08 if song.audiobook
+                    else 0x20 if song.music_video else 1)
             mhit.set_u32(0xD0, kind)  # podcast / audiobook / audio
+        if song.music_video and length > 0xB1:
+            mhit.set_u8(0xB1, 1)  # a movie: played on the video screen
         if song.audiobook and length >= 0xA8:
             mhit.set_u8(0xA5, 1)  # skip when shuffling
             mhit.set_u8(0xA6, 1)  # remember the playback position

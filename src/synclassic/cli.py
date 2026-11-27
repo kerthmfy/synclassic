@@ -197,6 +197,13 @@ def run_update(
                                   skip_keys=keys_on_connected_ipod(library, settings))
         if report.on_ipod:
             say(f"{report.on_ipod} songs weren't downloaded: they're already on your iPod.")
+        if settings.music_videos:
+            from synclassic.videos import Videos
+
+            items = {i.id: i for p in playlists for i in library.playlist_tracks(p)}
+            videos = Videos(library).update(settings, say=say, items=list(items.values()))
+            if videos.found or videos.failed:
+                say(f"Music videos: {videos.found} new" + (f", {videos.failed} failed" if videos.failed else ""))
         print_download_report(report)
         if not (report.downloaded or report.review or report.unmatched or report.failed or report.stopped_early):
             say("Everything is already downloaded.")

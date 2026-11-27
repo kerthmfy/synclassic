@@ -291,6 +291,11 @@ genre and year from Deezer's catalogue (Apple Music's as a fallback); the iPod's
 then works. **Fill In Genres & Years…** (File or iPod menu, or `synclassic info`) does the same
 for songs you already have, on this Mac and on the iPod; nothing already filled in changes.
 
+**Music videos** (Settings, off by default): Update also gets each song's official music video
+from YouTube and converts it to what the 5G/5.5G plays (H.264, 640×480, AAC); sync puts them in
+the iPod's Videos → Music Videos. About 30–50 MB and a minute or two of converting per video.
+Songs without an official video are looked for again after a month.
+
 **Songs already on your iPod** show a small iPod in the song list. With Settings → "Don't
 download songs that are already on my iPod", they aren't downloaded at all (they show "On iPod")
 and still go into the iPod's playlists from the iPod's own copy.
