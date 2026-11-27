@@ -18,6 +18,7 @@ import tempfile
 from synclassic import __version__
 
 BUNDLE_ID = "io.github.kerthmfy.synclassic"
+GLASS_ICON = pathlib.Path(__file__).parent / "gui" / "resources" / "Synclassic.icon"  # made in Icon Composer
 ICONSET_SIZES = [(16, 1), (16, 2), (32, 1), (32, 2), (128, 1), (128, 2), (256, 1), (256, 2), (512, 1), (512, 2)]
 
 LAUNCHER = """#!/bin/bash
@@ -70,6 +71,8 @@ def build_app(destination: pathlib.Path, python: str | None = None) -> pathlib.P
             icon_file = "Synclassic.png"
             shutil.copy(iconset / "icon_512x512@2x.png", contents / "Resources" / icon_file)
 
+    glass = _compile_glass_icon(contents / "Resources")
+
     info = {
         "CFBundleName": "Synclassic",
         "CFBundleDisplayName": "Synclassic",
@@ -83,6 +86,8 @@ def build_app(destination: pathlib.Path, python: str | None = None) -> pathlib.P
         "NSHighResolutionCapable": True,
         "LSApplicationCategoryType": "public.app-category.music",
     }
+    if glass:
+        info["CFBundleIconName"] = "Synclassic"  # macOS 26 uses the glass icon from Assets.car
     with open(contents / "Info.plist", "wb") as handle:
         plistlib.dump(info, handle)
 
@@ -93,6 +98,33 @@ def build_app(destination: pathlib.Path, python: str | None = None) -> pathlib.P
         subprocess.run([lsregister, "-f", str(app)], check=False)
     os.utime(app, None)
     return app
+
+
+def _compile_glass_icon(resources: pathlib.Path, run=subprocess.run) -> bool:
+    """Compile the Icon Composer icon (Liquid Glass, macOS 26) into Assets.car with Xcode's
+    actool. Without Xcode the drawn .icns is used, which looks the same minus the glass."""
+    if sys.platform != "darwin" or not GLASS_ICON.is_dir() or not shutil.which("xcrun"):
+        return False
+    with tempfile.TemporaryDirectory() as tmp:
+        icon = pathlib.Path(tmp) / "Synclassic.icon"
+        shutil.copytree(GLASS_ICON, icon)
+        out = pathlib.Path(tmp) / "out"
+        out.mkdir()
+        try:
+            result = run(
+                ["xcrun", "actool", str(icon), "--compile", str(out), "--app-icon", "Synclassic",
+                 "--include-all-app-icons", "--enable-on-demand-resources", "NO", "--development-region", "en",
+                 "--target-device", "mac", "--platform", "macosx", "--minimum-deployment-target", "11.0",
+                 "--output-partial-info-plist", str(out / "partial.plist"), "--output-format", "human-readable-text"],
+                capture_output=True, text=True, timeout=120,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return False
+        car = out / "Assets.car"
+        if result.returncode != 0 or not car.is_file():
+            return False
+        shutil.copy(car, resources / "Assets.car")
+    return True
 
 
 def name_menu_bar_app() -> None:

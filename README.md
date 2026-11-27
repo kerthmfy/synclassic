@@ -1,15 +1,16 @@
 # Synclassic
 
+<p align="center"><img src="docs/banner.png" alt="Synclassic: your Spotify playlists on your iPod classic" width="100%"></p>
+
 Your Spotify playlists on a classic iPod, with the same names and the same song order.
 
 Synclassic reads your playlists (Spotify links, your Spotify account, `.m3u8` files or CSV
-exports), finds each song on YouTube Music, downloads it as a tagged **M4A** (or MP3) file,
-and writes one `.m3u8` playlist per Spotify playlist. Run it again and it only downloads
-what's new.
+exports), finds each song on YouTube Music, downloads it as a tagged **M4A** (or MP3) file
+with full-size album art, and syncs it all to an iPod 5th/5.5th generation (Video), the way
+iTunes did. Run it again and it only downloads and copies what's new.
 
-> **Status:** Step 1 of the roadmap (download + playlists). Syncing straight to the iPod
-> (built for the iPod Classic 5.5G) comes next. Until then you can import the `.m3u8` files
-> into an iPod manager such as iOpenPod.
+It's also an iPod manager in the style of iTunes 7: browse and play what's on the iPod, edit
+its playlists, subscribe to podcasts, scrobble your plays to Last.fm, and keep backups.
 
 ## Install on a Mac
 

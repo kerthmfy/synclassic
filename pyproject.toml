@@ -32,7 +32,7 @@ synclassic-gui = "synclassic.gui.app:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-"synclassic.gui" = ["resources/*.svg"]
+"synclassic.gui" = ["resources/*.svg", "resources/Synclassic.icon/*.json", "resources/Synclassic.icon/Assets/*.svg"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

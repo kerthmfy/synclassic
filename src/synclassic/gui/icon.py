@@ -1,5 +1,8 @@
-"""The Synclassic app icon, drawn in the style of 2006 Mac OS X icons: a black iPod (Video)
-with a glossy Aqua-blue sync badge."""
+"""The Synclassic app icon: a black iPod (Video) with a glossy Aqua-blue sync badge (the logo),
+on the white macOS rounded tile, as designed in Icon Composer (resources/Synclassic.icon).
+
+The .icon file is what macOS 26 shows (with its glass effects) when install-app can compile it;
+this drawing is the same design for the window icon and older systems."""
 
 from __future__ import annotations
 
@@ -20,8 +23,8 @@ def render_icon(size: int) -> QImage:
     return image
 
 
-def save_svg(path, size: int = 512) -> None:
-    """The icon as a vector SVG (e.g. for the README or a website)."""
+def save_svg(path, size: int = 512, tile: bool = False) -> None:
+    """The logo (or, with `tile`, the whole app icon) as a vector SVG."""
     from PySide6.QtCore import QRect, QSize
     from PySide6.QtSvg import QSvgGenerator
 
@@ -32,11 +35,57 @@ def save_svg(path, size: int = 512) -> None:
     generator.setTitle("Synclassic")
     generator.setDescription("The Synclassic app icon")
     painter = QPainter(generator)
-    paint_icon(painter, size)
+    (paint_icon if tile else paint_logo)(painter, size)
     painter.end()
 
 
+# The macOS icon grid (on a 1024 canvas): an 824 tile, and the logo at Icon Composer's 172 %
+# of its 512 artboard.
+TILE, LOGO = 824 / 1024, 880 / 1024
+
+
+def tile_path(s: float) -> QPainterPath:
+    side = s * TILE
+    rect = QRectF((s - side) / 2, (s - side) / 2 - s * 0.006, side, side)
+    path = QPainterPath()
+    path.addRoundedRect(rect, side * 0.225, side * 0.225)
+    return path
+
+
 def paint_icon(painter: QPainter, size: int) -> None:
+    """The whole app icon: shadow, white tile, the logo inside it, a soft top light."""
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    s = float(size)
+    path = tile_path(s)
+    rect = path.boundingRect()
+    for spread, alpha in ((0.03, 7), (0.018, 11), (0.008, 16)):  # soft, neutral shadow
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(0, 0, 0, alpha))
+        shadow = QPainterPath()
+        grown = rect.adjusted(-s * spread * 0.4, s * spread * 0.2, s * spread * 0.4, s * spread * 1.4)
+        shadow.addRoundedRect(grown, grown.width() * 0.23, grown.width() * 0.23)
+        painter.drawPath(shadow)
+    fill = QLinearGradient(rect.topLeft(), rect.bottomLeft())
+    fill.setColorAt(0, QColor("#ffffff"))
+    fill.setColorAt(1, QColor("#f5f5f5"))
+    painter.setBrush(fill)
+    painter.drawPath(path)
+    painter.save()
+    painter.setClipPath(path)
+    offset = (s - s * LOGO) / 2
+    painter.translate(offset, offset)
+    paint_logo(painter, int(round(s * LOGO)))
+    painter.restore()
+    light = QLinearGradient(rect.topLeft(), rect.bottomLeft())
+    light.setColorAt(0, QColor(255, 255, 255, 230))
+    light.setColorAt(0.5, QColor(255, 255, 255, 0))
+    light.setColorAt(1, QColor(0, 0, 0, 30))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.setPen(QPen(light, max(1.0, s * 0.004)))
+    painter.drawPath(path)
+
+
+def paint_logo(painter: QPainter, size: int) -> None:
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
     s = float(size)
