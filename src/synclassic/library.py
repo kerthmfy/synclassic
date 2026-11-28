@@ -100,6 +100,12 @@ class LibraryTrack:
     def has_file(self) -> bool:
         return bool(self.file_path) and pathlib.Path(self.file_path).is_file()
 
+    @property
+    def editable_file(self) -> bool:
+        """A file Synclassic downloaded, so it may put lyrics, covers and details inside. Your
+        own files (from a music folder or a playlist file) are never changed."""
+        return self.has_file and self.status != "local"
+
 
 @dataclass
 class LibraryPlaylist:

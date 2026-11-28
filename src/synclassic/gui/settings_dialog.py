@@ -146,6 +146,13 @@ class SettingsDialog(QDialog):
         self.sync_sound = QCheckBox("Play a chime when a sync finishes")
         self.sync_sound.setChecked(self.settings.sync_sound)
         form.addRow("", self.sync_sound)
+        self.lossless_to = QComboBox()
+        self.lossless_to.addItem("Apple Lossless (same sound, bigger)", "alac")
+        self.lossless_to.addItem("AAC 256 kbps (about a fifth of the size)", "aac")
+        self.lossless_to.setCurrentIndex(max(0, self.lossless_to.findData(self.settings.lossless_to)))
+        self.lossless_to.setToolTip("Your own FLAC files (and others the iPod can't play) are converted while "
+                                    "syncing; the files on your Mac stay as they are.")
+        form.addRow("On the iPod, FLAC becomes", self.lossless_to)
         from synclassic import background
 
         self.background = QComboBox()
@@ -376,6 +383,7 @@ class SettingsDialog(QDialog):
         self.settings.music_videos = self.music_videos.isChecked()
         self.settings.sync_on_connect = self.sync_on_connect.isChecked()
         self.settings.sync_sound = self.sync_sound.isChecked()
+        self.settings.lossless_to = self.lossless_to.currentData()
         self._apply_background()
         self.settings.folder_layout = self.layout_choice.currentData()
         self.settings.scrobble_after_sync = self.scrobble_after.isChecked()

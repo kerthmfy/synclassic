@@ -71,7 +71,7 @@ def fill_library(library, finder: song_info.InfoFinder | None = None, progress=N
             result.not_found += 1
             continue
         library.update_track(item.id, track=track)
-        if item.has_file:
+        if item.editable_file:
             try:
                 tagging.update_info(pathlib.Path(item.file_path), track.genre, track.year)  # type: ignore[arg-type]
             except Exception as error:

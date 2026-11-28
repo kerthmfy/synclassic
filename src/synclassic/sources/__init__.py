@@ -25,8 +25,8 @@ FullReader = Callable[[SpotifyRef, "int | None", str], "SourcePlaylist | None"]
 
 @dataclass(frozen=True)
 class SourceSpec:
-    kind: str  # "spotify", "liked", "m3u", "csv", or "store-album" / "store-songs" (Find Music)
-    ref: str  # Spotify URL, or an absolute file path
+    kind: str  # "spotify", "liked", "m3u", "csv", "folder", or "store-album" / "store-songs" (Find Music)
+    ref: str  # Spotify URL, or an absolute file or folder path
     selector: str = ""  # CSV only: which playlist inside the file
 
     def describe(self) -> str:
@@ -41,6 +41,8 @@ class SourceSpec:
             return "Songs you got in Find Music"
         if self.kind == "spotify":
             return self.ref
+        if self.kind == "folder":
+            return f"Your music folder: {self.ref}"
         return f"{self.ref}" + (f" [{self.selector}]" if self.selector else "")
 
 
@@ -56,8 +58,10 @@ def specs_from_input(text: str) -> list[SourceSpec]:
             raise SourceError("Short spotify.link links aren't supported yet. Use 'Copy link' in Spotify's Share menu.")
         raise SourceError(f"Not a Spotify playlist, album or track link: {text}")
     path = pathlib.Path(text).expanduser()
+    if path.is_dir():
+        return [SourceSpec("folder", str(path.resolve()))]
     if not path.is_file():
-        raise SourceError(f"No such file, and not a Spotify link: {text}")
+        raise SourceError(f"No such file or folder, and not a Spotify link: {text}")
     path = path.resolve()
     suffix = path.suffix.lower()
     if suffix in (".m3u", ".m3u8"):
@@ -98,6 +102,12 @@ def read_source(spec: SourceSpec, client: SpotifyClient | None, full_reader: Ful
                 return store.read_album(spec.ref, load_settings().store_country)
             except store.StoreError as error:
                 raise SourceError(str(error)) from error
+        if spec.kind == "folder":
+            from synclassic.sources.folder import parse_folder
+
+            if not pathlib.Path(spec.ref).is_dir():
+                raise SourceError(f"The music folder isn't there (moved, or its drive isn't connected): {spec.ref}")
+            return parse_folder(spec.ref)
         if spec.kind == "m3u":
             path = pathlib.Path(spec.ref)
             if not path.is_file():

@@ -104,23 +104,29 @@ class AddDialog(QDialog):
         # --- file ---
         file_tab = QWidget()
         file_layout = QVBoxLayout(file_tab)
-        file_layout.addWidget(QLabel("Import a playlist file:"))
+        file_layout.addWidget(QLabel("Import a playlist file, or add a folder of your own music:"))
         file_row = QHBoxLayout()
-        self.file_label = QLabel("No file chosen")
-        choose = QPushButton("Choose file…")
+        self.file_label = QLabel("Nothing chosen")
+        self.file_label.setWordWrap(True)
+        choose = QPushButton("Choose File…")
         choose.clicked.connect(self._choose_file)
+        choose_folder = QPushButton("Choose Folder…")
+        choose_folder.clicked.connect(self._choose_folder)
         file_row.addWidget(self.file_label, 1)
         file_row.addWidget(choose)
+        file_row.addWidget(choose_folder)
         file_layout.addLayout(file_row)
         file_hint = QLabel(
             "• .m3u8 / .m3u: songs that are already on your Mac are used as they are; the rest are downloaded.\n"
-            "• .csv from Exportify or TuneMyMusic: a file with several playlists adds each of them."
+            "• .csv from Exportify or TuneMyMusic: a file with several playlists adds each of them.\n"
+            "• A folder: all the music in it (subfolders too) as one playlist, FLAC included. Nothing is "
+            "downloaded and your files aren't changed; new files in it are picked up at each Update."
         )
         file_hint.setWordWrap(True)
         file_hint.setStyleSheet("color: palette(placeholder-text);")
         file_layout.addWidget(file_hint)
         file_layout.addStretch(1)
-        self.tabs.addTab(file_tab, "File")
+        self.tabs.addTab(file_tab, "File or Folder")
 
         self.download_now = QCheckBox("Download the songs now")
         self.download_now.setChecked(True)
@@ -190,6 +196,13 @@ class AddDialog(QDialog):
 
     def _choose_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Choose a playlist file", "", "Playlists (*.m3u8 *.m3u *.csv *.tsv)")
+        if path:
+            self.file_path = path
+            self.file_label.setText(path)
+        self._update_ok()
+
+    def _choose_folder(self) -> None:
+        path = QFileDialog.getExistingDirectory(self, "Choose a folder with your music")
         if path:
             self.file_path = path
             self.file_label.setText(path)

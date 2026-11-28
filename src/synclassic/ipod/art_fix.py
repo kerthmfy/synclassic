@@ -120,7 +120,7 @@ def scan(ipod: IPod, library=None, everything: bool = False, progress=None,
             album.ipod_files.append(ipod.root / song.relative_path)
         item = known.get(song.dbid)
         if item is not None:
-            if item.has_file:
+            if item.editable_file:
                 album.library_files.append(pathlib.Path(item.file_path))  # type: ignore[arg-type]
             if item.track.cover_url and item.track.cover_url not in album.cover_urls:
                 album.cover_urls.append(item.track.cover_url)
@@ -159,7 +159,7 @@ def scan_library(library, skip: set[pathlib.Path] = frozenset(), progress=None,
     whose cover is missing or low quality. Fixing them changes the cover inside the files."""
     albums: dict[tuple[str, str], AlbumArt] = {}
     for item in library.tracks_in_playlists():
-        if not item.has_file or pathlib.Path(item.file_path) in skip:  # type: ignore[arg-type]
+        if not item.editable_file or pathlib.Path(item.file_path) in skip:  # type: ignore[arg-type]
             continue
         track = item.track
         artist = track.album_artist or track.artist

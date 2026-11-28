@@ -97,6 +97,11 @@ def parse_m3u(path: str | pathlib.Path) -> SourcePlaylist:
                 track = Track(title=title, artists=artists, duration_ms=duration)
                 if location.is_file():
                     track.local_path = str(location)
+                    from synclassic.sources.folder import _track_from, read_tags
+
+                    details = read_tags(location)
+                    if details.get("title"):  # the file's own details are better than the playlist line
+                        track = _track_from(location, details)
             elif title:
                 track = Track(title=title, artists=artists, duration_ms=duration)
             elif location is None:

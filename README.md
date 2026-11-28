@@ -94,6 +94,12 @@ synclassic add "~/Downloads/Road Trip.m3u8" ~/Downloads/export.csv
 | Your own playlists, any length | Yes | `synclassic add --all-mine` adds Liked Songs plus every playlist you own. |
 | `.m3u8` / `.m3u` file | No | Songs that already exist on your Mac are used as-is; others are downloaded. |
 | `.csv` export (Exportify, TuneMyMusic) | No | A file with several playlists becomes several playlists. |
+| A folder of your own music | No | `synclassic add ~/Music/CDs`: everything in it (subfolders too, FLAC included) as one playlist, in album order. Nothing is downloaded, and new files are picked up at each Update. |
+
+Your own files (from a folder or a playlist file) are never changed: Synclassic reads their
+details and syncs them as they are. Files the iPod can't play, like FLAC, are converted on their
+way to the iPod (see [Choose what goes on each iPod](#your-ipod)). In the app: **+** → **File or
+Folder** → **Choose Folder…**.
 
 ## Find Music (songs and albums)
 

@@ -42,7 +42,7 @@ def library_missing(library) -> list:
     """Synclassic's songs on this Mac without lyrics (not counting ones asked about recently)."""
     lookups = lyrics.LyricsLookups(library)
     return [item for item in library.tracks_in_playlists()
-            if item.has_file and not lyrics.read(pathlib.Path(item.file_path))
+            if item.editable_file and not lyrics.read(pathlib.Path(item.file_path))
             and not lookups.recently_missing(item.track.artist, item.track.title)]
 
 
@@ -98,11 +98,14 @@ def fill_ipod(ipod: IPod, library=None, finder: lyrics.LyricsFinder | None = Non
     finder = finder or lyrics.LyricsFinder()
     lookups = lyrics.LyricsLookups(library) if library is not None else None
     mac_copy: dict[int, pathlib.Path] = {}
+    editable: set[int] = set()  # Mac copies Synclassic downloaded (your own files are never changed)
     if library is not None:
         by_key = {item.key: item for item in library.tracks_in_playlists() if item.has_file}
         for key, entry in load_state(ipod)["tracks"].items():
             if key in by_key:
                 mac_copy[int(entry["dbid"], 16)] = pathlib.Path(by_key[key].file_path)  # type: ignore[arg-type]
+                if by_key[key].editable_file:
+                    editable.add(int(entry["dbid"], 16))
 
     result = LyricsResult()
     changed: dict[int, int] = {}  # dbid -> new file size
@@ -133,7 +136,7 @@ def fill_ipod(ipod: IPod, library=None, finder: lyrics.LyricsFinder | None = Non
                 result.not_found += 1
                 continue
             text = found.text
-            if song.dbid in mac_copy:  # keep the Mac's copy in step
+            if song.dbid in editable:  # keep the Mac's copy in step
                 try:
                     lyrics.write(mac_copy[song.dbid], text)  # type: ignore[arg-type]
                 except (OSError, ValueError):
