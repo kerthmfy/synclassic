@@ -123,7 +123,7 @@ def add_inputs(
 
 
 def needs_work(item: LibraryTrack, retry_failed: bool) -> bool:
-    if item.status == "local":
+    if item.status in ("local", "ipod"):  # your own file, or kept only on the iPod
         return False
     if item.status == "pending":
         return True

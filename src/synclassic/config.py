@@ -77,6 +77,9 @@ class Settings:
     sync_sound: bool = True
     # The look: aqua (the original), graphite, dark (Midnight) or auto (dark when macOS is).
     appearance: str = "aqua"
+    # Where new songs go: mac, both (this Mac and the iPod right away) or ipod (only the iPod:
+    # this Mac's copy is removed once it's safely on the iPod). Each playlist can choose its own.
+    download_to: str = "mac"
     # Look for a new version of Synclassic on GitHub once a day (it only tells you).
     check_updates: bool = True
     # The first-run setup assistant has been shown.
@@ -113,6 +116,7 @@ SETTING_HELP = {
     "music_videos": "on/off: also get official music videos, converted for the iPod",
     "sync_sound": "on/off: a chime when a sync finishes",
     "appearance": "aqua, graphite, dark (Midnight) or auto (dark when macOS is in Dark Mode)",
+    "download_to": "mac, both (this Mac and the iPod right away) or ipod (only on the iPod, no copy on this Mac)",
     "check_updates": "on/off: tell me when there's a new version of Synclassic (checks GitHub once a day)",
     "lastfm_love": "on/off: love songs on Last.fm that you rate 5 stars on the iPod",
     "otg_to_spotify": "on/off: make the iPod's On-The-Go playlists in your Spotify account too (needs Spotify login)",
@@ -171,6 +175,10 @@ def set_setting(settings: Settings, key: str, value: str) -> None:
             raise ValueError("parallel_downloads must be 1, 2 or 3")
         settings.parallel_downloads = int(value)
         return
+    elif key == "download_to":
+        value = value.lower()
+        if value not in ("mac", "both", "ipod"):
+            raise ValueError("download_to must be mac, both or ipod")
     elif key == "appearance":
         value = value.lower()
         if value not in ("aqua", "graphite", "dark", "auto"):

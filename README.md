@@ -96,6 +96,21 @@ synclassic add "~/Downloads/Road Trip.m3u8" ~/Downloads/export.csv
 | `.csv` export (Exportify, TuneMyMusic) | No | A file with several playlists becomes several playlists. |
 | A folder of your own music | No | `synclassic add ~/Music/CDs`: everything in it (subfolders too, FLAC included) as one playlist, in album order. Nothing is downloaded, and new files are picked up at each Update. |
 
+**Save to: this Mac, or straight to the iPod.** When you add a playlist (the Add window), Get a
+song or album in Find Music, or right-click a playlist → **Save New Songs To**, choose:
+
+- **This Mac**: as always; the songs go on the iPod at your next sync.
+- **This Mac and the iPod**: right after downloading, the new songs are copied to the connected
+  iPod by themselves (a sync that only adds; anything that would remove something is asked first).
+- **The iPod only**: the same, and once a song is safely on the iPod, Synclassic's copy on this
+  Mac is removed to save space ("iPod only" in the list). Songs also in a playlist kept on this
+  Mac stay, and your own files (music folders, playlist files) are never removed. If another iPod
+  should have the song, it's downloaded again for that one.
+
+The default for new playlists is in Settings (New songs go to). Terminal: `synclassic add <link>
+--to ipod` (or `both`, `mac`); `synclassic update` then copies the new songs to the connected iPod.
+The background update never writes to the iPod.
+
 Your own files (from a folder or a playlist file) are never changed: Synclassic reads their
 details and syncs them as they are. Files the iPod can't play, like FLAC, are converted on their
 way to the iPod (see [Choose what goes on each iPod](#your-ipod)). In the app: **+** → **File or
@@ -456,6 +471,7 @@ synclassic config
 | `parallel_downloads` | `2` | songs downloading at once (1–3; more is faster, but YouTube may slow down quick downloads) |
 | `lossless_to` | `alac` | what FLAC becomes on the iPod: `alac` (Apple Lossless) or `aac` (256 kbps) |
 | `lastfm_love` | `on` | love songs on Last.fm that you rate 5 stars on the iPod |
+| `download_to` | `mac` | where new songs go: `mac`, `both` (this Mac and the iPod right away) or `ipod` (only the iPod) |
 | `otg_to_spotify` | `on` | make the iPod's On-The-Go playlists in your Spotify account too |
 | `full_playlist_reader` | `on` | read public playlists over 100 songs from Spotify's web page |
 | `folder_layout` | `artist` | `artist` (Artist/Album/Song) or `playlist` (one folder per playlist) |

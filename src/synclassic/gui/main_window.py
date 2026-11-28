@@ -74,6 +74,7 @@ ATTENTION_STATUSES = ("review", "unmatched", "failed")
 STATUS = {
     "downloaded": "Ready",
     "local": "Mac file",
+    "ipod": "iPod only",
     "review": "Check",
     "pending": "Waiting",
     "unmatched": "Not found",
@@ -882,7 +883,11 @@ class MainWindow(QMainWindow):
             self.title.setText(playlist.name)
             minutes = sum((i.track.duration_ms or 0) for i in items) // 60000
             length = f"{minutes // 60} h {minutes % 60} min" if minutes >= 60 else f"{minutes} min"
-            self.subtitle.setText(f"{len(items)} songs · {length} · {playlist.spec.describe()}")
+            from synclassic import destinations
+
+            where = {destinations.BOTH: " · saved to this Mac and the iPod",
+                     destinations.IPOD: " · saved to the iPod only"}.get(destinations.of_playlist(playlist), "")
+            self.subtitle.setText(f"{len(items)} songs · {length} · {playlist.spec.describe()}{where}")
             self.note.setText(playlist.note or "")
             self.note.setVisible(bool(playlist.note))
             self.update_one.setText("Update Playlist")
@@ -2091,6 +2096,7 @@ class MainWindow(QMainWindow):
 
         def add(detailed):
             playlist = store.get_song(self.library, detailed)
+            self.library.set_destination(playlist, self.find_page.save_to.currentData())
             self._download_collection(playlist, f"“{detailed.title}”")
 
         # Search results from Deezer leave out the track number, release date and genre: look them up first.
@@ -2100,6 +2106,7 @@ class MainWindow(QMainWindow):
         from synclassic.sources import store
 
         playlist = store.get_album(self.library, album, songs)
+        self.library.set_destination(playlist, self.find_page.save_to.currentData())
         self._download_collection(playlist, f"the album “{album.title}”")
 
     def make_genius(self, artist: str, title: str) -> None:
@@ -2710,10 +2717,27 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
         rename = menu.addAction("Rename…")
         reveal = menu.addAction("Show playlist file in Finder")
+        from synclassic import destinations
+
+        save_menu = menu.addMenu("Save New Songs To")
+        save_actions = {}
+        current = playlist.destination
+        for value, text in [("", f"Default ({destinations.CHOICES[destinations.default()]})"),
+                            *destinations.CHOICES.items()]:
+            act = save_menu.addAction(text)
+            act.setCheckable(True)
+            act.setChecked(current == value)
+            save_actions[act] = value
         menu.addSeparator()
         remove = menu.addAction("Remove playlist…")
         chosen = menu.exec(self.sidebar.viewport().mapToGlobal(position))
-        if chosen == update:
+        if chosen in save_actions:
+            self.library.set_destination(playlist, save_actions[chosen])
+            where = destinations.CHOICES[destinations.of_playlist(playlist)]
+            self.say(f"“{playlist.name}”: new songs go to {where[0].lower() + where[1:]}.")
+            if destinations.of_playlist(playlist) != destinations.MAC:
+                self._send_new_songs_to_ipod([playlist.id])
+        elif chosen == update:
             self.start_update([playlist.id])
         elif chosen == retry:
             self.start_update([playlist.id], retry_failed=True, refresh_sources=False)
@@ -2959,6 +2983,7 @@ class MainWindow(QMainWindow):
         if dialog.exec() != AddDialog.DialogCode.Accepted:
             return
         inputs, name, download = dialog.inputs, dialog.name, dialog.download_now.isChecked()
+        save_to = dialog.save_to.currentData()
         path = self.library_path
 
         def work(task: Task):
@@ -2966,6 +2991,11 @@ class MainWindow(QMainWindow):
             try:
                 client = _spotify_client(task)
                 added = add_inputs(library, inputs, name, client, task.say, self._full_reader())
+                from synclassic import destinations
+
+                if save_to != destinations.default():
+                    for playlist in added:
+                        library.set_destination(playlist, save_to)
                 task.changed.emit()
                 if added and download:
                     _download(library, task, added, retry_failed=False)
@@ -2977,8 +3007,22 @@ class MainWindow(QMainWindow):
         def done(ids):
             if ids:
                 self.current_key = ids[0]
+                if download:
+                    QTimer.singleShot(0, lambda: self._send_new_songs_to_ipod(ids))
 
         self._run_job("Adding…", work, done)
+
+    def _send_new_songs_to_ipod(self, playlist_ids) -> None:
+        """For playlists saved to the iPod too: copy what was just downloaded to the connected iPod
+        (a sync that only adds goes ahead by itself; anything it would remove is asked first)."""
+        from synclassic import destinations
+
+        if self.ipod is None or self.job is not None:
+            return
+        playlists = [p for p in self.library.playlists() if playlist_ids is None or p.id in playlist_ids]
+        if destinations.wants_ipod(playlists):
+            self.say("Copying the new songs to the iPod…")
+            self.sync_ipod(quick=True)
 
     def _update_current(self) -> None:
         if self.current_key == ATTENTION:  # Search All Again
@@ -2998,6 +3042,7 @@ class MainWindow(QMainWindow):
         if self.job is not None:
             return
         path = self.library_path
+        chosen_root = self.ipod.root if self.ipod is not None else None
 
         def work(task: Task):
             from synclassic.background import update_lock
@@ -3034,6 +3079,14 @@ class MainWindow(QMainWindow):
                             for title in report.removed[:20]:
                                 task.say(f"    − {title}")
                         task.changed.emit()
+                if chosen_root is not None:  # songs kept only on another iPod that this one lacks
+                    from synclassic import destinations
+                    from synclassic.ipod.device import find_ipods
+
+                    ipod = next((i for i in find_ipods() if i.root == chosen_root), None)
+                    again = destinations.reclaim_for(library, ipod) if ipod is not None else 0
+                    if again:
+                        task.say(f"{again} songs kept only on another iPod are downloaded again for this one.")
                 result = _download(library, task, playlists, retry_failed)
                 if load_settings().music_videos and not task.should_stop():
                     _get_videos(library, task, playlists)
@@ -3046,6 +3099,8 @@ class MainWindow(QMainWindow):
             stopped = isinstance(result, dict) and result.get("summary", "").startswith("Stopped")
             if after is not None and not stopped and result is not None:
                 QTimer.singleShot(0, after)  # once this job is fully finished
+            elif after is None and not stopped and result is not None:
+                QTimer.singleShot(0, lambda: self._send_new_songs_to_ipod(playlist_ids))
 
         self._run_job("Updating…", work, finished)
 

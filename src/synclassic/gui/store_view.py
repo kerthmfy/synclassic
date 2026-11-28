@@ -116,9 +116,17 @@ class FindMusicPage(QWidget):
             button.clicked.connect(lambda _=False, k=kind: self.set_kind(k))
             row.addWidget(button)
             self.kind_buttons[kind] = button
+        from synclassic import destinations
+        from synclassic.gui.add_dialog import destination_box
+
+        row.addSpacing(10)
+        row.addWidget(QLabel("Save to:"))
+        self.save_to = destination_box()  # for what you Get here (songs share one list, albums each have their own)
+        self.save_to.setCurrentIndex(max(0, self.save_to.findData(destinations.default())))
+        row.addWidget(self.save_to)
         layout.addLayout(row)
         self.status = QLabel("Search the music catalogue, then Get a song or a whole album. It downloads like your "
-                             "playlists' songs and goes on your iPod at the next sync.")
+                             "playlists' songs, to this Mac or straight to your iPod (Save to).")
         self.status.setWordWrap(True)
         self.status.setProperty("role", "dim")
         self.status.setStyleSheet("padding: 4px 2px;")

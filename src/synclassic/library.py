@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS tracks (
     id INTEGER PRIMARY KEY,
     key TEXT NOT NULL UNIQUE,
     data TEXT NOT NULL,            -- the Track as JSON
-    status TEXT NOT NULL DEFAULT 'pending',  -- pending, downloaded, review, unmatched, failed, local
+    status TEXT NOT NULL DEFAULT 'pending',  -- pending, downloaded, review, unmatched, failed, local, ipod (only on the iPod)
     video_id TEXT,
     match_score REAL,
     match_notes TEXT,
@@ -40,7 +40,8 @@ CREATE TABLE IF NOT EXISTS playlists (
     source_selector TEXT NOT NULL DEFAULT '',
     added_at TEXT NOT NULL,
     refreshed_at TEXT,
-    note TEXT
+    note TEXT,
+    destination TEXT NOT NULL DEFAULT ''  -- where new songs go: '' (the setting), mac, both, ipod
 );
 CREATE TABLE IF NOT EXISTS playlist_tracks (
     playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
@@ -114,6 +115,7 @@ class LibraryPlaylist:
     spec: SourceSpec
     refreshed_at: str | None
     note: str | None
+    destination: str = ""  # where new songs go: "" (the setting), "mac", "both" or "ipod"
 
 
 class Library:
@@ -126,6 +128,10 @@ class Library:
         self.db.execute("PRAGMA journal_mode = WAL")
         self.db.execute("PRAGMA foreign_keys = ON")
         self.db.executescript(SCHEMA)
+        columns = {row["name"] for row in self.db.execute("PRAGMA table_info(playlists)")}
+        if "destination" not in columns:  # libraries from before "Save to"
+            with self.db:
+                self.db.execute("ALTER TABLE playlists ADD COLUMN destination TEXT NOT NULL DEFAULT ''")
 
     def close(self) -> None:
         self.db.close()
@@ -134,7 +140,7 @@ class Library:
 
     def _playlist(self, row: sqlite3.Row) -> LibraryPlaylist:
         spec = SourceSpec(row["source_kind"], row["source_ref"], row["source_selector"])
-        return LibraryPlaylist(row["id"], row["name"], spec, row["refreshed_at"], row["note"])
+        return LibraryPlaylist(row["id"], row["name"], spec, row["refreshed_at"], row["note"], row["destination"] or "")
 
     def playlists(self) -> list[LibraryPlaylist]:
         rows = self.db.execute("SELECT * FROM playlists ORDER BY name COLLATE NOCASE").fetchall()
@@ -172,6 +178,12 @@ class Library:
                 (name, spec.kind, spec.ref, spec.selector, now()),
             )
         return self.playlist_by_name(name)  # type: ignore[return-value]
+
+    def set_destination(self, playlist: LibraryPlaylist, destination: str) -> None:
+        """Where this playlist's new songs go ("" = the setting, "mac", "both" or "ipod")."""
+        with self.db:
+            self.db.execute("UPDATE playlists SET destination = ? WHERE id = ?", (destination, playlist.id))
+        playlist.destination = destination
 
     def rename_playlist(self, playlist: LibraryPlaylist, new_name: str) -> str:
         name = self.unique_name(new_name, ignore_id=playlist.id)

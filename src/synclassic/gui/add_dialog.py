@@ -26,6 +26,21 @@ from synclassic.sources.spotify_api import SpotifyClient
 from synclassic.sources.spotify_links import parse_spotify_ref
 
 
+def destination_box():
+    """A "Save to" pop-up: this Mac / this Mac and the iPod / the iPod only."""
+    from PySide6.QtWidgets import QComboBox
+
+    from synclassic import destinations
+
+    box = QComboBox()
+    for value, text in destinations.CHOICES.items():
+        box.addItem(text, value)
+    box.setToolTip("This Mac: songs go on the iPod at your next sync.\n"
+                   "This Mac and the iPod: they're copied to the connected iPod right after downloading.\n"
+                   "The iPod only: copied to the iPod, then this Mac's copy is removed to save space.")
+    return box
+
+
 def load_my_spotify(task) -> tuple[str, list[dict]] | None:
     try:
         client = SpotifyClient.from_saved_login()
@@ -130,7 +145,16 @@ class AddDialog(QDialog):
 
         self.download_now = QCheckBox("Download the songs now")
         self.download_now.setChecked(True)
-        layout.addWidget(self.download_now)
+        from synclassic import destinations
+
+        save_row = QHBoxLayout()
+        save_row.addWidget(self.download_now)
+        save_row.addStretch(1)
+        save_row.addWidget(QLabel("Save to:"))
+        self.save_to = destination_box()
+        self.save_to.setCurrentIndex(max(0, self.save_to.findData(destinations.default())))
+        save_row.addWidget(self.save_to)
+        layout.addLayout(save_row)
         self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         self.buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Add")
         self.buttons.accepted.connect(self._accept)

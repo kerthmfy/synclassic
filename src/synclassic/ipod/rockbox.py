@@ -305,6 +305,9 @@ def apply(library: Library, plan: RockboxPlan, say: Say, should_stop=None, progr
     if hasattr(os, "sync"):
         os.sync()
     say("Rockbox sync complete. On the iPod: Settings → General → Database → Update Now (or turn on Auto Update).")
+    from synclassic import destinations
+
+    destinations.release_mac_copies(library, {key: root / relative for key, relative in state["files"].items()}, say)
 
 
 def _remove_empty_folders(folder: pathlib.Path, stop: pathlib.Path) -> None:

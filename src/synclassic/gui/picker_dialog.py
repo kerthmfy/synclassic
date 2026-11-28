@@ -33,6 +33,7 @@ STATUS_TEXT = {
     "failed": "Failed",
     "pending": "Not downloaded yet",
     "local": "Using a file from your Mac",
+    "ipod": "Kept only on the iPod",
 }
 
 

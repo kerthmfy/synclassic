@@ -163,6 +163,11 @@ class SettingsDialog(QDialog):
         self.appearance.setCurrentIndex(max(0, self.appearance.findData(self.settings.appearance)))
         self.appearance.setToolTip("Aqua is the original iTunes 7 look; Midnight is a dark version.")
         form.addRow("Appearance", self.appearance)
+        from synclassic.gui.add_dialog import destination_box
+
+        self.download_to = destination_box()
+        self.download_to.setCurrentIndex(max(0, self.download_to.findData(self.settings.download_to)))
+        form.addRow("New songs go to", self.download_to)
         self.lossless_to = QComboBox()
         self.lossless_to.addItem("Apple Lossless (same sound, bigger)", "alac")
         self.lossless_to.addItem("AAC 256 kbps (about a fifth of the size)", "aac")
@@ -421,6 +426,7 @@ class SettingsDialog(QDialog):
         self.settings.sync_sound = self.sync_sound.isChecked()
         self.settings.check_updates = self.check_updates.isChecked()
         self.settings.lossless_to = self.lossless_to.currentData()
+        self.settings.download_to = self.download_to.currentData()
         if self.settings.appearance != self.appearance.currentData():
             from PySide6.QtWidgets import QApplication
 

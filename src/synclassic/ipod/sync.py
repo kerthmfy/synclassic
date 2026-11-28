@@ -801,6 +801,13 @@ def apply_plan(
     if hasattr(os, "sync"):
         os.sync()
     say("Sync complete.")
+    # Songs to keep only on the iPod: now that they're safely there, this Mac's copy can go.
+    from synclassic import destinations
+
+    paths = {song.dbid: ipod.root / song.relative_path for song in itunesdb.songs(db) if song.location}
+    on_ipod = {key: paths[int(entry["dbid"], 16)] for key, entry in state["tracks"].items()
+               if int(entry["dbid"], 16) in paths}
+    destinations.release_mac_copies(library, on_ipod, say)
     return saved
 
 

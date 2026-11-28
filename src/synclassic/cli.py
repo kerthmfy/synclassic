@@ -171,6 +171,9 @@ def cmd_add(args) -> int:
     playlists = add_sources(library, inputs, args.name)
     if not playlists:
         return 1
+    if args.to:
+        for playlist in playlists:
+            library.set_destination(playlist, args.to)
     if args.no_download:
         finish(library)
         say("Added. Run 'synclassic update' to download the songs.")
@@ -179,8 +182,10 @@ def cmd_add(args) -> int:
 
 
 def run_update(
-    library: Library, playlists: list[LibraryPlaylist], retry_failed: bool, download: bool = True, refresh: bool = True
+    library: Library, playlists: list[LibraryPlaylist], retry_failed: bool, download: bool = True, refresh: bool = True,
+    to_ipod: bool = True,
 ) -> int:
+    """`to_ipod`: afterwards, copy new songs to the connected iPod for playlists saved there too."""
     settings = load_settings()
     if refresh:
         client = spotify_client()
@@ -193,6 +198,13 @@ def run_update(
         say(f"Saving music to {settings.music_path} as {settings.format.upper()}")
         from synclassic.update import keys_on_connected_ipod
 
+        ipod = _connected_ipod() if to_ipod else None
+        if ipod is not None:
+            from synclassic import destinations
+
+            again = destinations.reclaim_for(library, ipod)
+            if again:
+                say(f"{again} songs kept only on another iPod are downloaded again for {ipod.name}.")
         report = download_missing(library, settings, say, retry_failed=retry_failed, only=playlists,
                                   skip_keys=keys_on_connected_ipod(library, settings))
         if report.on_ipod:
@@ -208,7 +220,60 @@ def run_update(
         if not (report.downloaded or report.review or report.unmatched or report.failed or report.stopped_early):
             say("Everything is already downloaded.")
     finish(library)
+    if download and to_ipod:
+        _send_to_ipod(library, playlists)
     return 0
+
+
+def _connected_ipod():
+    from synclassic.ipod.device import find_ipods
+
+    try:
+        ipods = find_ipods()
+    except OSError:
+        return None
+    return ipods[0] if ipods else None
+
+
+def _send_to_ipod(library: Library, playlists: list[LibraryPlaylist]) -> None:
+    """For playlists saved to the iPod too: copy the new songs now (only when nothing would be removed)."""
+    from synclassic import destinations
+
+    if not destinations.wants_ipod(playlists):
+        return
+    ipod = _connected_ipod()
+    if ipod is None:
+        say("These playlists are saved to the iPod too: plug it in and run 'synclassic ipod sync'.")
+        return
+    from synclassic.ipod import rockbox
+    from synclassic.ipod import sync as ipod_sync
+    from synclassic.ipod.check import check
+
+    say("")
+    say(f"Copying the new songs to {ipod.name}…")
+    try:
+        if rockbox.mode(ipod) == rockbox.ROCKBOX:
+            plan = rockbox.make_plan(library, ipod)
+        else:
+            if not check(ipod).safe_to_manage:
+                say("The iPod check didn't pass, so nothing was copied: see 'synclassic ipod'.")
+                return
+            plan = ipod_sync.make_plan(library, ipod)
+        if not plan.has_changes:
+            say("The iPod already has everything.")
+            return
+        if not plan.only_adds or not plan.fits:
+            for line in plan.summary():
+                say(line)
+            say("This sync would also remove things (or doesn't fit), so it waits for you: synclassic ipod sync")
+            return
+        if isinstance(plan, rockbox.RockboxPlan):
+            rockbox.apply(library, plan, say)
+        else:
+            ipod_sync.apply_plan(library, plan, say)
+        say("Done. Eject before unplugging: synclassic ipod eject")
+    except ipod_sync.SyncError as error:
+        say(f"Copying to the iPod stopped: {error}")
 
 
 def cmd_update(args) -> int:
@@ -226,7 +291,8 @@ def cmd_update(args) -> int:
         playlists = find_playlists(library, args.playlists)
         code = 0
         if playlists:
-            code = run_update(library, playlists, retry_failed=args.retry_failed, download=not args.no_download)
+            code = run_update(library, playlists, retry_failed=args.retry_failed, download=not args.no_download,
+                              to_ipod=not args.background)  # the background update never writes to the iPod
         elif not args.playlists:
             say("No playlists yet. Add one with: synclassic add <link or file>")
         if not args.playlists and not args.no_download:  # updating everything: podcasts too
@@ -278,6 +344,7 @@ def cmd_list(args) -> int:
 STATUS_LABEL = {
     "downloaded": "ok",
     "local": "local file",
+    "ipod": "only on the iPod",
     "review": "check",
     "pending": "waiting",
     "unmatched": "not found",
@@ -949,6 +1016,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--name", help="give the playlist your own name")
     p.add_argument("--all-mine", action="store_true", help="add Liked Songs and every playlist you own")
     p.add_argument("--no-download", action="store_true", help="only add; download later with 'update'")
+    p.add_argument("--to", choices=["mac", "both", "ipod"],
+                   help="where the new songs go: mac, both (this Mac and the iPod right away) or ipod (only the iPod)")
     p.set_defaults(func=cmd_add)
 
     p = sub.add_parser("update", help="check playlists for new songs and download them")
