@@ -246,6 +246,25 @@ What a sync does:
 - Removes songs **Synclassic added** once no playlist uses them. Music you put on the iPod
   some other way is never deleted, and your other playlists are left as they are.
 
+**Choose what goes on each iPod.** On the iPod page, **Choose Playlists…** sets which playlists
+go on that iPod (all of them, or the ones you tick) and how big its songs are: as they are, or
+converted to 256, 192 or 128 kbps AAC so more fits (128 kbps holds about twice as many). It shows
+how much the chosen playlists need against what the iPod holds. Each iPod keeps its own choice
+(saved on the iPod), so a small iPod can carry just your favourites. If a sync doesn't fit,
+Synclassic says which size would make it fit. Terminal:
+
+```bash
+synclassic ipod playlists                 # list them, [x] = on this iPod
+synclassic ipod playlists 1 4 "Road Trip"  # only these (numbers or names); 'all' for every one
+synclassic ipod size 128                   # or 256, 192, as-is
+```
+
+Your files on the Mac are never changed: converted copies are made while syncing, then deleted.
+Songs already on the iPod stay as they are. **FLAC** and other files the iPod can't play are
+converted the same way, to Apple Lossless (same sound) or, with `synclassic config lossless_to aac`,
+256 kbps AAC. With **several iPods** connected, pick one at the top of the iPod page (or
+`--ipod NAME` in Terminal); an iPod you plug in is shown straight away.
+
 **Mini Player and menu bar**: Controls → **Mini Player** (⇧⌘M) is a small always-on-top window
 with the controls and display; a music note in the menu bar shows the current song with Play,
 Next and Previous (turn off in Settings). With Last.fm connected, songs you play in Synclassic

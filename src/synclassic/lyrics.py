@@ -149,6 +149,13 @@ def read(path: pathlib.Path) -> str | None:
             except ID3NoHeaderError:
                 return None
             return frames[0].text if frames else None
+        if suffix in (".flac", ".ogg", ".oga", ".opus"):
+            from mutagen import File as MutagenFile
+
+            tags = getattr(MutagenFile(path), "tags", None) or {}
+            for name in ("lyrics", "unsyncedlyrics", "LYRICS", "UNSYNCEDLYRICS"):
+                if name in tags and tags[name]:
+                    return tags[name][0]
     except Exception:
         return None
     return None

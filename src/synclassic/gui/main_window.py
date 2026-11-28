@@ -11,6 +11,7 @@ from PySide6.QtGui import QAction, QDesktopServices, QFont, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QComboBox,
     QFrame,
     QHBoxLayout,
     QHeaderView,
@@ -524,6 +525,11 @@ class MainWindow(QMainWindow):
         top.addWidget(self.ipod_graphic)
         top.addSpacing(18)
         info = QVBoxLayout()
+        self.ipod_picker = QComboBox()  # only shown when more than one iPod is connected
+        self.ipod_picker.setToolTip("More than one iPod is connected: choose which one to see and sync")
+        self.ipod_picker.activated.connect(self._ipod_picked)
+        self.ipod_picker.hide()
+        info.addWidget(self.ipod_picker)
         self.ipod_name = QLabel("iPod")
         name_font = QFont(self.font())
         name_font.setPixelSize(20)
@@ -564,6 +570,16 @@ class MainWindow(QMainWindow):
         buttons.addWidget(eject)
         buttons.addStretch(1)
         info.addLayout(buttons)
+        choices = QHBoxLayout()
+        self.ipod_choice_label = QLabel("")
+        self.ipod_choice_label.setStyleSheet("color: #4a4a4a;")
+        choose = QPushButton("Choose Playlists…")
+        choose.setToolTip("Which playlists go on this iPod, and how big its songs are")
+        choose.clicked.connect(self.choose_ipod_playlists)
+        choices.addWidget(self.ipod_choice_label)
+        choices.addWidget(choose)
+        choices.addStretch(1)
+        info.addLayout(choices)
         info.addWidget(self.rockbox_box)
         maintenance = QHBoxLayout()
         for text, slot in (("Backups…", self.show_backups), ("Clean Up…", self.show_cleanup),
@@ -2228,21 +2244,41 @@ class MainWindow(QMainWindow):
 
     # --- iPod ------------------------------------------------------------------------------------
 
-    def _detect_ipod(self) -> None:
+    def _detect_ipod(self, choose=None) -> None:
+        """Notice iPods being plugged in and out. With several, the one you picked stays chosen;
+        one that's just been plugged in is shown. `choose`: a root to switch to."""
         from synclassic.ipod.device import find_ipods
 
         try:
             ipods = find_ipods()
         except OSError:
             ipods = []
-        ipod = ipods[0] if ipods else None
+        roots = [i.root for i in ipods]
+        known = getattr(self, "_known_ipod_roots", None)
+        self._known_ipod_roots = roots
+        wanted = choose or self._ipod_root
+        if known is not None:
+            new = [r for r in roots if r not in known]
+            if new and choose is None:
+                wanted = new[0]
+        ipod = next((i for i in ipods if i.root == wanted), ipods[0] if ipods else None)
         root = ipod.root if ipod else None
+        if roots != known:
+            self.ipod_picker.blockSignals(True)
+            self.ipod_picker.clear()
+            for each in ipods:
+                self.ipod_picker.addItem(f"{each.name}  ({each.root.name})", str(each.root))
+            self.ipod_picker.setVisible(len(ipods) > 1)
+            self.ipod_picker.blockSignals(False)
+        if root is not None:
+            self.ipod_picker.setCurrentIndex(max(0, roots.index(root)))
         if root == self._ipod_root:
             return
         if self._ipod_root is not None and root != self._ipod_root:
             self.player.stop_if_from(self._ipod_root)
         self._ipod_root = root
         self.ipod = ipod
+        self._show_ipod_choices()
         self.ipod_contents = None
         self.on_ipod_keys = set()
         self.ipod_graphic.set_contents(None)
@@ -2254,11 +2290,41 @@ class MainWindow(QMainWindow):
         self.refresh()
         self._load_ipod_contents()
 
+    def _ipod_picked(self, index: int) -> None:
+        root = self.ipod_picker.itemData(index)
+        if root and (self.ipod is None or str(self.ipod.root) != root):
+            if self.job is not None:
+                QMessageBox.information(self, "Busy", "Wait for the current task to finish first.")
+                self._detect_ipod()
+                return
+            self._detect_ipod(choose=pathlib.Path(root))
+
+    def choose_ipod_playlists(self) -> None:
+        from synclassic.gui.ipod_choices import PlaylistChoiceDialog
+
+        if self.ipod is None:
+            QMessageBox.information(self, "No iPod", "Plug in your iPod first.")
+            return
+        if PlaylistChoiceDialog(self.library, self.ipod, self).exec():
+            self._show_ipod_choices()
+            self.say(f"Saved what goes on {self.ipod.name}. It's used from the next sync.")
+
+    def _show_ipod_choices(self) -> None:
+        from synclassic.ipod import prefs
+
+        if self.ipod is not None:
+            try:
+                self.ipod_choice_label.setText("Syncing: " + prefs.describe(self.library, self.ipod))
+            except OSError:
+                self.ipod_choice_label.setText("")
+
     def _show_ipod(self) -> None:
         ipod = self.ipod
         if ipod is None:
             return
         from synclassic.ipod import rockbox
+
+        self._show_ipod_choices()
 
         display = self.ipod_contents.name if self.ipod_contents else ipod.name
         self.ipod_name.setText(display)
@@ -2526,11 +2592,14 @@ class MainWindow(QMainWindow):
         from synclassic.ipod.check import check, format_report
         from synclassic.ipod.device import find_ipods
 
+        chosen_root = self.ipod.root if self.ipod is not None else None
+
         def work(task):
             ipods = find_ipods()
-            if not ipods:
+            ipod = next((i for i in ipods if i.root == chosen_root), ipods[0] if ipods else None)
+            if ipod is None:
                 return None
-            report = check(ipods[0])
+            report = check(ipod)
             return [(format_report(report), report.safe_to_manage)]
 
         def show(result):
@@ -2577,24 +2646,27 @@ class MainWindow(QMainWindow):
             return
         path = self.library_path
 
+        chosen_root = self.ipod.root if self.ipod is not None else None
+
         def prepare(task):
             from synclassic.ipod import rockbox
 
             ipods = find_ipods()
-            if not ipods:
+            ipod = next((i for i in ipods if i.root == chosen_root), ipods[0] if ipods else None)
+            if ipod is None:
                 return None
-            if rockbox.mode(ipods[0]) == rockbox.ROCKBOX:
+            if rockbox.mode(ipod) == rockbox.ROCKBOX:
                 library = Library(path)
                 try:
-                    return ("plan", rockbox.make_plan(library, ipods[0]))
+                    return ("plan", rockbox.make_plan(library, ipod))
                 finally:
                     library.close()
-            report = check(ipods[0])
+            report = check(ipod)
             if not report.safe_to_manage:
                 return ("unsafe", format_report(report))
             library = Library(path)
             try:
-                return ("plan", ipod_sync.make_plan(library, ipods[0]))
+                return ("plan", ipod_sync.make_plan(library, ipod))
             finally:
                 library.close()
 
@@ -2618,7 +2690,14 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(self, "iPod is up to date", "\n".join(lines[1:]))
                 return
             if not plan.fits:
-                QMessageBox.warning(self, "Not enough space", "\n".join(lines))
+                box = QMessageBox(QMessageBox.Icon.Warning, "Not enough space", "\n".join(lines[:14]), parent=self)
+                if len(lines) > 14:
+                    box.setDetailedText("\n".join(lines))
+                choose = box.addButton("Choose Playlists…", QMessageBox.ButtonRole.ActionRole)
+                box.addButton(QMessageBox.StandardButton.Close)
+                box.exec()
+                if box.clickedButton() is choose:
+                    self.choose_ipod_playlists()
                 return
             if quick and plan.only_adds:
                 self._apply_sync(plan)

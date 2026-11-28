@@ -219,14 +219,27 @@ def from_rgb565(data: bytes, width: int, height: int):
 
 
 def embedded_cover(path: pathlib.Path) -> bytes | None:
-    """The cover image stored inside a song file (M4A covr / MP3 APIC)."""
+    """The cover image stored inside a song file (M4A covr, MP3 APIC, FLAC/Ogg pictures)."""
     try:
         from mutagen import File as MutagenFile
 
         audio = MutagenFile(path)
     except Exception:
         return None
+    pictures = getattr(audio, "pictures", None)  # FLAC
+    if pictures:
+        front = [p for p in pictures if p.type == 3]
+        return bytes((front or pictures)[0].data)
     tags = getattr(audio, "tags", None)
+    if tags and hasattr(tags, "get") and tags.get("metadata_block_picture"):  # Ogg Vorbis / Opus
+        import base64
+
+        from mutagen.flac import Picture
+
+        try:
+            return bytes(Picture(base64.b64decode(tags["metadata_block_picture"][0])).data)
+        except Exception:
+            return None
     if not tags:
         return None
     covers = tags.get("covr") if hasattr(tags, "get") else None

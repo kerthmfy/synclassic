@@ -416,9 +416,53 @@ def _pick_ipod(args):
         say("No iPod found. Plug it in and wait until it shows up in Finder, then try again.")
         say("(If it's mounted somewhere unusual: synclassic ipod --path /Volumes/YourIPod)")
         return None
+    wanted = getattr(args, "ipod", None)
+    if wanted:
+        matches = [i for i in ipods if wanted.casefold() in (i.name.casefold(), i.root.name.casefold())]
+        matches = matches or [i for i in ipods if wanted.casefold() in i.name.casefold() or wanted.casefold() in i.root.name.casefold()]
+        if not matches:
+            say(f"No connected iPod is called “{wanted}”. Connected: " + ", ".join(f"{i.name} ({i.root})" for i in ipods))
+            return None
+        return matches[0]
     if len(ipods) > 1:
-        say(f"More than one iPod is connected; using {ipods[0].root}. Choose another with --path.")
+        say(f"More than one iPod is connected ({', '.join(i.name for i in ipods)}); using {ipods[0].name}. "
+            f"Choose another with --ipod NAME.")
     return ipods[0]
+
+
+def _ipod_playlists(ipod, names: list[str]) -> int:
+    """Show or choose the playlists that go on this iPod."""
+    from synclassic.ipod import prefs
+    from synclassic.ipod.sync import playlist_key
+
+    library = open_library()
+    playlists = library.playlists()
+    if names:
+        if [n.lower() for n in names] == ["all"]:
+            prefs.update(ipod, playlists=None)
+        else:
+            chosen = []
+            for name in names:
+                if name.isdigit() and 1 <= int(name) <= len(playlists):
+                    chosen.append(playlists[int(name) - 1])
+                    continue
+                found = [p for p in playlists if p.name.casefold() == name.casefold()]
+                if not found:
+                    say(f"There's no playlist “{name}”. Use the numbers or names below.")
+                    names = []
+                    break
+                chosen.extend(found)
+            if names:
+                prefs.update(ipod, playlists=[playlist_key(p) for p in chosen])
+    current = prefs.load(ipod)
+    on = {playlist_key(p) for p in prefs.chosen_playlists(library, ipod, current)}
+    say(f"Playlists for {ipod.name}: " + ("all of them" if current.all_playlists else f"{len(on)} chosen"))
+    for number, playlist in enumerate(playlists, start=1):
+        mark = "x" if playlist_key(playlist) in on else " "
+        count = len(library.playlist_track_ids(playlist))
+        say(f"  [{mark}] {number:>3}. {playlist.name} ({count} song{'s' if count != 1 else ''})")
+    say("Choose: synclassic ipod playlists 1 4 \"Road Trip\"   ·   every playlist: synclassic ipod playlists all")
+    return 0
 
 
 def cmd_ipod(args) -> int:
@@ -502,6 +546,26 @@ def cmd_ipod(args) -> int:
             return 0
         ipod_sync.restore(ipod, folder)
         say(f"Restored the database from {folder.name}.")
+        return 0
+
+    if action == "playlists":
+        return _ipod_playlists(ipod, args.names)
+
+    if action == "size":
+        from synclassic.ipod import prefs
+
+        if args.names:
+            choice = args.names[0].lower().removesuffix("k").removesuffix("kbps")
+            bitrate = 0 if choice in ("as-is", "asis", "original", "0", "off") else int(choice) if choice.isdigit() else -1
+            if bitrate not in prefs.BITRATES:
+                say("Usage: synclassic ipod size as-is|256|192|128")
+                return 1
+            prefs.update(ipod, bitrate=bitrate)
+        bitrate = prefs.load(ipod).bitrate
+        say(f"Songs copied to {ipod.name}: " + (f"converted to {bitrate} kbps AAC when they're bigger" if bitrate
+                                                else "as they are"))
+        if bitrate:
+            say("(Songs already on the iPod stay as they are.)")
         return 0
 
     if action == "mode":
@@ -923,11 +987,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("value", nargs="?")
     p.set_defaults(func=cmd_config)
 
-    p = sub.add_parser("ipod", help="iPod: check (default, read-only), sync, restore a backup, eject, art (fix album art)")
-    p.add_argument("action", nargs="?", default="check", choices=["check", "sync", "restore", "eject", "art", "soundcheck", "smart", "audiobooks", "mode"])
-    p.add_argument("names", nargs="*", help="smart: which smart playlists to have")
+    p = sub.add_parser("ipod", help="iPod: check (default, read-only), sync, restore a backup, eject, art (fix album art), "
+                                       "playlists (which go on it), size (smaller files)")
+    p.add_argument("action", nargs="?", default="check", choices=["check", "sync", "restore", "eject", "art", "soundcheck", "smart", "audiobooks", "mode",
+                            "playlists", "size"])
+    p.add_argument("names", nargs="*", help="smart: which smart playlists to have; playlists: numbers or names "
+                                            "(or 'all'); size: as-is, 256, 192 or 128")
     p.add_argument("backup", nargs="?", type=int, help="restore: backup number (see 'synclassic ipod restore')")
     p.add_argument("--path", help="the iPod's folder, if it isn't found automatically")
+    p.add_argument("--ipod", help="which iPod, by name, when more than one is connected")
     p.add_argument("--dry-run", action="store_true", help="sync: only show what would change")
     p.add_argument("--yes", action="store_true", help="don't ask for confirmation")
     p.add_argument("--eject", action="store_true", help="sync: eject the iPod afterwards")

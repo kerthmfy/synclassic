@@ -747,3 +747,51 @@ def test_find_music_covers_survive_switching_views(app, monkeypatch):
         return color.red() > 150 and color.green() < 80
 
     assert wait_until(app, lambda: all(reddish(i) for i in range(3)))
+
+
+def test_choose_playlists_for_this_ipod_and_switch_between_ipods(app, monkeypatch, tmp_path):
+    from PySide6.QtCore import Qt
+
+    from synclassic.gui.ipod_choices import PlaylistChoiceDialog
+    from synclassic.gui.main_window import MainWindow
+    from synclassic.ipod import prefs
+    from synclassic.ipod.device import ipod_at
+    from synclassic.ipod.sync import playlist_key
+    from tests.test_ipod_read import fake_ipod, load
+    from tests.test_ipod_sync import library_with, song
+
+    first = ipod_at(fake_ipod(tmp_path / "a", load("captured-album-index-36.b64")))
+    other = fake_ipod(tmp_path / "b", load("captured-album-index-36.b64"))
+    second = ipod_at(other.rename(other.with_name("Gym iPod")))
+    connected = [first]
+    monkeypatch.setattr("synclassic.ipod.device.find_ipods", lambda: list(connected))
+    library_with(tmp_path, {"Gym": [song(1), song(2)], "Chill": [song(3)]}).close()
+
+    window = MainWindow()
+    assert window.ipod.root == first.root and window.ipod_picker.isHidden()
+    assert window.ipod_choice_label.text() == "Syncing: All playlists · songs as they are"
+
+    dialog = PlaylistChoiceDialog(window.library, window.ipod, window)
+    assert dialog.every.isChecked() and not dialog.list.isEnabled() and "3 songs" in dialog.total.text()
+    dialog.only.setChecked(True)
+    for row in range(dialog.list.count()):
+        item = dialog.list.item(row)
+        if not item.text().startswith("Gym"):
+            item.setCheckState(Qt.CheckState.Unchecked)
+    dialog.size.setCurrentIndex(3)  # 128 kbps
+    assert "2 songs" in dialog.total.text()
+    dialog._save()
+    saved = prefs.load(first)
+    assert saved.playlists == [playlist_key(window.library.playlist_by_name("Gym"))] and saved.bitrate == 128
+
+    connected.append(second)  # a second iPod is plugged in: it's shown, and the picker appears
+    window._detect_ipod()
+    assert window.ipod.root == second.root and not window.ipod_picker.isHidden() and window.ipod_picker.count() == 2
+    assert window.ipod_choice_label.text() == "Syncing: All playlists · songs as they are"  # its own choice
+    window.ipod_picker.setCurrentIndex(0)
+    window._ipod_picked(0)
+    assert window.ipod.root == first.root
+    assert window.ipod_choice_label.text() == "Syncing: 1 chosen playlist · new songs as 128 kbps AAC"
+    window._detect_ipod()  # nothing changed: stays on the one you picked
+    assert window.ipod.root == first.root
+    window.close()

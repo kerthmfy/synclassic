@@ -119,6 +119,9 @@ class Plan:
     podcasts: podcast_sync.PodcastPlan = field(default_factory=podcast_sync.PodcastPlan)
     videos: list[tuple[str, LibraryTrack, pathlib.Path]] = field(default_factory=list)  # music videos to copy
     remove_videos: list[tuple[str, itunesdb.SongView]] = field(default_factory=list)
+    convert: dict = field(default_factory=dict)  # library key -> convert.Target (converted while copying)
+    chosen_only: bool = False  # only the playlists ticked for this iPod
+    bitrate: int = 0  # this iPod's chosen size for new songs (0 = as they are)
 
     @property
     def has_changes(self) -> bool:
@@ -149,8 +152,13 @@ class Plan:
 
     def summary(self) -> list[str]:
         gb = 1000**3
-        lines = [f"Sync plan for “{self.ipod.name}”:"]
+        lines = [f"Sync plan for “{self.ipod.name}”" + (" (the playlists chosen for it)" if self.chosen_only else "") + ":"]
         lines.append(f"  Copy {len(self.copy)} songs ({self.bytes_to_copy / gb:.2f} GB)")
+        if self.convert:
+            kinds: dict[str, int] = {}
+            for target in self.convert.values():
+                kinds[target.describe()] = kinds.get(target.describe(), 0) + 1
+            lines.append("  Convert while copying: " + ", ".join(f"{n} to {k}" for k, n in sorted(kinds.items())))
         lines.append(f"  Reuse {len(self.reuse)} songs already on the iPod")
         for planned in self.playlists:
             name = planned.library.name
@@ -172,7 +180,8 @@ class Plan:
                 line += f"; the iPod's version has {planned.ipod_count}"
             lines.append(line)
         if self.remove_playlists:
-            lines.append(f"  Remove {len(self.remove_playlists)} playlists you removed from Synclassic: "
+            lines.append(f"  Remove {len(self.remove_playlists)} playlists you removed from Synclassic"
+                         + (" or didn't choose for this iPod" if self.chosen_only else "") + ": "
                          + ", ".join(name for _, _, name in self.remove_playlists))
         if self.remove_songs:
             lines.append(f"  Remove {len(self.remove_songs)} songs Synclassic added that no playlist uses "
@@ -201,9 +210,42 @@ class Plan:
         lines.append(f"  Free space after sync: {(self.free_bytes + self.total_to_free - self.total_to_copy) / gb:.1f} GB")
         if not self.fits:
             lines.append("  ✗ Not enough space on the iPod.")
+            lines += [f"    {hint}" for hint in self.fit_hints()]
         if not self.has_changes:
             lines.append("  Everything is already in sync.")
         return lines
+
+    @property
+    def shortfall(self) -> int:
+        """How many bytes too few there are (0 if it fits)."""
+        return max(0, self.total_to_copy + SPACE_MARGIN - self.free_bytes - self.total_to_free)
+
+    def fit_hints(self) -> list[str]:
+        """Ways to make the sync fit."""
+        from synclassic import convert
+
+        gb = 1000**3
+        hints = [f"About {self.shortfall / gb:.1f} GB too much."]
+        for kbps in (256, 192, 128):
+            if self.bitrate and kbps >= self.bitrate:
+                continue
+            target = convert.Target("aac", kbps)
+            saved = 0
+            for item in self.copy:
+                path = pathlib.Path(item.file_path)  # type: ignore[arg-type]
+                current = self.convert.get(item.key)
+                if current is not None and current.codec == "aac" and current.kbps <= kbps:
+                    continue
+                now = convert.estimated_size(path, item.track.duration_ms, current)
+                saved += max(0, now - convert.estimated_size(path, item.track.duration_ms, target))
+            if saved >= self.shortfall:
+                hints.append(f"Smaller files ({kbps} kbps) for this iPod would make it fit (saves about {saved / gb:.1f} GB).")
+                break
+        else:
+            hints.append("Even the smallest files (128 kbps) wouldn't be enough on their own.")
+        hints.append("Or choose fewer playlists for this iPod (iPod page → Choose Playlists…, "
+                     "or synclassic ipod playlists).")
+        return hints
 
 
 def _match_key(artist: str, title: str) -> tuple[str, str]:
@@ -245,9 +287,17 @@ def library_keys_on_ipod(library: Library, ipod: IPod) -> set[str]:
 
 
 def make_plan(library: Library, ipod: IPod, db: itunesdb.Chunk | None = None) -> Plan:
+    from synclassic import convert
+    from synclassic.config import load_settings
+    from synclassic.ipod import prefs as ipod_prefs
+
     db = db if db is not None else itunesdb.parse(ipod.database_path.read_bytes())
     state = load_state(ipod)
     plan = Plan(ipod)
+    chosen_prefs = ipod_prefs.load(ipod)
+    chosen = ipod_prefs.chosen_playlists(library, ipod, chosen_prefs)
+    plan.chosen_only, plan.bitrate = not chosen_prefs.all_playlists, chosen_prefs.bitrate
+    lossless_to = load_settings().lossless_to
     plan.free_bytes = ipod.disk_usage()[1]
     plan.play_counts_pending = (ipod.control / "iTunes" / "Play Counts").is_file() or bool(
         playcounts.otg_files(ipod.control / "iTunes")
@@ -259,7 +309,7 @@ def make_plan(library: Library, ipod: IPod, db: itunesdb.Chunk | None = None) ->
     # Every song in a playlist, downloaded or not: a song that's already on the iPod doesn't
     # need a downloaded file to be put in a playlist.
     wanted: dict[str, LibraryTrack] = {}
-    for playlist in library.playlists():
+    for playlist in chosen:
         for item in library.playlist_tracks(playlist):
             wanted.setdefault(item.key, item)
 
@@ -271,16 +321,22 @@ def make_plan(library: Library, ipod: IPod, db: itunesdb.Chunk | None = None) ->
             plan.not_ready.add(key)  # not downloaded yet (or not found on YouTube)
             continue
         path = pathlib.Path(item.file_path)  # type: ignore[arg-type]
-        if path.suffix.lower() not in SUPPORTED:
-            plan.skipped.append((item, f"the iPod can't play {path.suffix} files"))
-            plan.not_ready.add(key)
-            continue
-        if not ipod.fits_file(path.stat().st_size):
+        target = convert.target_for(path, item.track.duration_ms, chosen_prefs.bitrate, lossless_to)
+        if target is not None and not convert.available():
+            if path.suffix.lower() not in SUPPORTED:
+                plan.skipped.append((item, f"the iPod can't play {path.suffix} files, and converting needs ffmpeg"))
+                plan.not_ready.add(key)
+                continue
+            target = None  # copied as it is
+        size = convert.estimated_size(path, item.track.duration_ms, target)
+        if not ipod.fits_file(size):
             plan.skipped.append((item, "it's 4 GB or bigger, more than a Windows-formatted (FAT32) iPod can hold"))
             plan.not_ready.add(key)
             continue
+        if target is not None:
+            plan.convert[key] = target
         plan.copy.append(item)
-        plan.bytes_to_copy += path.stat().st_size
+        plan.bytes_to_copy += size
 
     copying = {item.key for item in plan.copy}
     on_ipod = set(plan.reuse) | copying
@@ -289,7 +345,7 @@ def make_plan(library: Library, ipod: IPod, db: itunesdb.Chunk | None = None) ->
     owned_ids = {int(v["id"], 16) for v in state["playlists"].values()}
     from synclassic.sources.store import COLLECTION_KINDS
 
-    for playlist in library.playlists():
+    for playlist in chosen:
         if playlist.spec.kind in COLLECTION_KINDS:
             continue  # Find Music albums and songs: on the iPod by album/artist, not as playlists
         key = playlist_key(playlist)
@@ -323,7 +379,7 @@ def make_plan(library: Library, ipod: IPod, db: itunesdb.Chunk | None = None) ->
             planned.unchanged = current.name == playlist.name and current.track_ids == [id_by_dbid.get(d) for d in dbids]
         plan.playlists.append(planned)
 
-    library_keys = {playlist_key(p) for p in library.playlists() if p.spec.kind not in COLLECTION_KINDS}
+    library_keys = {playlist_key(p) for p in chosen if p.spec.kind not in COLLECTION_KINDS}
     for key, value in state["playlists"].items():
         pid = int(value["id"], 16)
         if key not in library_keys and pid in existing:
@@ -359,8 +415,6 @@ def make_plan(library: Library, ipod: IPod, db: itunesdb.Chunk | None = None) ->
                     and item.has_file and song.dbid not in {s.dbid for s in plan.remove_songs}):
                 plan.art_backfill.append((song.dbid, item))
     # Sound Check: songs from the library on the iPod without a value yet.
-    from synclassic.config import load_settings
-
     if load_settings().sound_check:
         from synclassic.loudness import LoudnessCache
 
@@ -480,6 +534,8 @@ def song_info(path: pathlib.Path, item: LibraryTrack, location: str) -> NewSong:
     bitrate = int((getattr(info, "bitrate", 0) or 0) / 1000)
     sample_rate = int(getattr(info, "sample_rate", 0) or 44100)
     vbr = False
+    if filetype == "m4a" and str(getattr(info, "codec", "")).lower() == "alac":
+        filetype = "alac"
     if filetype == "mp3":
         mode = getattr(info, "bitrate_mode", None)
         vbr = mode is not None and "VBR" in str(mode).upper()
@@ -561,11 +617,25 @@ def apply_plan(
     loudness = LoudnessCache(library) if load_settings().sound_check else None
     new_dbids: dict[str, int] = {}
     copied_files: list[pathlib.Path] = []
+    from synclassic import convert
+
+    converter = convert.Converter([(item.key, pathlib.Path(item.file_path), plan.convert[item.key], item.track)  # type: ignore[arg-type]
+                                   for item in plan.copy if item.key in plan.convert])
     try:
         for number, item in enumerate(plan.copy, start=1):
             if should_stop and should_stop():
                 raise SyncError("Stopped before the database was changed. Nothing on the iPod was changed.")
-            source = pathlib.Path(item.file_path)  # type: ignore[arg-type]
+            original = pathlib.Path(item.file_path)  # type: ignore[arg-type]
+            source = original
+            target_format = plan.convert.get(item.key)
+            if target_format is not None:
+                say(f"[{number}/{len(plan.copy)}] Converting {item.track.display()} to {target_format.describe()}")
+                if progress:
+                    progress(number, len(plan.copy), f"Converting {item.track.display()}")
+                try:
+                    source = converter.get(item.key)
+                except convert.ConvertError as error:
+                    raise SyncError(f"{error} Nothing on the iPod was changed.") from error
             target = _new_ipod_path(ipod, source.suffix.lower(), folders)
             say(f"[{number}/{len(plan.copy)}] Copying {item.track.display()}")
             if progress:
@@ -575,6 +645,9 @@ def apply_plan(
             if tmp.stat().st_size != source.stat().st_size:
                 raise SyncError(f"Copy of {source.name} didn't verify.")
             os.replace(tmp, target)
+            if source is not original:
+                source.unlink(missing_ok=True)
+                source = original  # loudness and the cover come from your own file
             copied_files.append(target)
             location = ":" + target.relative_to(ipod.root).as_posix().replace("/", ":")
             info = song_info(target, item, location)
@@ -625,6 +698,8 @@ def apply_plan(
         for path in copied_files:  # leave no orphan files behind
             path.unlink(missing_ok=True)
         raise
+    finally:
+        converter.close()
 
     # Sound Check for songs that were already on the iPod.
     if loudness is not None and plan.soundcheck:

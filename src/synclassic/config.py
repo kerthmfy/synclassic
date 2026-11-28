@@ -72,6 +72,9 @@ class Settings:
     store_country: str = ""
     # A chime when a sync finishes.
     sync_sound: bool = True
+    # Lossless songs the iPod can't play (FLAC and others) are converted while syncing, to
+    # "alac" (Apple Lossless: same sound, bigger) or "aac" (256 kbps: about a fifth of the size).
+    lossless_to: str = "alac"
 
     @property
     def music_path(self) -> pathlib.Path:
@@ -95,6 +98,7 @@ SETTING_HELP = {
     "music_videos": "on/off: also get official music videos, converted for the iPod",
     "sync_sound": "on/off: a chime when a sync finishes",
     "store_country": "country of Apple's catalogue in Find Music (e.g. PH, GB, JP); empty = this Mac's region",
+    "lossless_to": "alac or aac: what FLAC (and other lossless files the iPod can't play) become when synced",
 }
 
 
@@ -143,6 +147,10 @@ def set_setting(settings: Settings, key: str, value: str) -> None:
             raise ValueError("download_pause can't be negative")
         setattr(settings, key, number)
         return
+    elif key == "lossless_to":
+        value = value.lower()
+        if value not in ("alac", "aac"):
+            raise ValueError("lossless_to must be alac (Apple Lossless) or aac")
     elif key == "folder_layout":
         value = value.lower()
         if value not in ("artist", "playlist"):

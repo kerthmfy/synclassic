@@ -7,7 +7,8 @@ playlists, so a Rockbox sync:
 - puts the album's cover next to them as cover.jpg (what Rockbox shows),
 - writes each playlist as Playlists/<Name>.m3u8, in order,
 - removes only the files and playlists it added, when nothing needs them any more.
-Rockbox plays FLAC, so files are copied as they are. What Synclassic added is remembered in
+Rockbox plays FLAC, so files are copied as they are (unless you chose smaller files for this
+iPod). What Synclassic added is remembered in
 .synclassic/state.json on the iPod. After a sync, Rockbox's database updates by itself if
 "Auto Update" is on (Settings → General → Database), or with "Update Now".
 
@@ -40,26 +41,21 @@ def is_rockbox(root: pathlib.Path) -> bool:
     return (root / ".rockbox").is_dir()
 
 
-def _settings_path(root: pathlib.Path) -> pathlib.Path:
-    return root / FOLDER / "settings.json"
-
-
 def mode(ipod) -> str:
     """Which firmware this iPod is synced for."""
     if not is_rockbox(ipod.root):
         return APPLE
     if not ipod.database_path.is_file():
         return ROCKBOX  # Rockbox only
-    try:
-        return json.loads(_settings_path(ipod.root).read_text()).get("mode", APPLE)
-    except (OSError, ValueError):
-        return APPLE
+    from synclassic.ipod import prefs
+
+    return ROCKBOX if prefs.load(ipod).mode == ROCKBOX else APPLE
 
 
 def set_mode(ipod, value: str) -> None:
-    path = _settings_path(ipod.root)
-    path.parent.mkdir(exist_ok=True)
-    path.write_text(json.dumps({"mode": value}))
+    from synclassic.ipod import prefs
+
+    prefs.update(ipod, mode=value)
 
 
 def _state_path(root: pathlib.Path) -> pathlib.Path:
@@ -108,6 +104,7 @@ class RockboxPlan:
     remove_files: list[str] = field(default_factory=list)
     remove_playlists: list[str] = field(default_factory=list)
     skipped: list[tuple[LibraryTrack, str]] = field(default_factory=list)
+    convert: dict = field(default_factory=dict)  # track key -> convert.Target (smaller copies)
     bytes_to_copy: int = 0
     bytes_to_free: int = 0
     free_bytes: int = 0
@@ -129,6 +126,8 @@ class RockboxPlan:
         lines = [f"Rockbox sync for “{self.ipod.name}”:",
                  f"  Copy {len(self.copy)} songs ({self.bytes_to_copy / gb:.2f} GB)",
                  f"  {len(self.keep)} songs already there"]
+        if self.convert:
+            lines.append(f"  Convert {len(self.convert)} songs to {next(iter(self.convert.values())).describe()} while copying")
         if self.changed_playlists:
             lines.append(f"  Write {len(self.changed_playlists)} playlists: " + ", ".join(
                 pathlib.Path(self.playlists[k][0]).stem for k in self.changed_playlists[:8]))
@@ -158,7 +157,9 @@ def _playlist_text(items: list[tuple[LibraryTrack, str]]) -> str:
 
 def make_plan(library: Library, ipod, playlists=None) -> RockboxPlan:
     """What a Rockbox sync would do (nothing is changed). `playlists`: which library playlists
-    (default: all)."""
+    (default: the ones chosen for this iPod)."""
+    from synclassic import convert
+    from synclassic.ipod import prefs as ipod_prefs
     from synclassic.ipod.sync import playlist_key
     from synclassic.sources.store import COLLECTION_KINDS
 
@@ -166,7 +167,8 @@ def make_plan(library: Library, ipod, playlists=None) -> RockboxPlan:
     state = load_state(root)
     plan = RockboxPlan(ipod)
     plan.free_bytes = ipod.disk_usage()[1]
-    chosen = playlists if playlists is not None else library.playlists()
+    chosen_prefs = ipod_prefs.load(ipod)
+    chosen = playlists if playlists is not None else ipod_prefs.chosen_playlists(library, ipod, chosen_prefs)
     taken: set[str] = {p.casefold() for p in state["files"].values()}
     placed: dict[str, str] = {}  # track key -> relative path (this sync)
     for playlist in chosen:
@@ -179,18 +181,25 @@ def make_plan(library: Library, ipod, playlists=None) -> RockboxPlan:
                     plan.keep[item.key] = known
                 elif item.has_file:
                     source = pathlib.Path(item.file_path)  # type: ignore[arg-type]
-                    if not ipod.fits_file(source.stat().st_size):
+                    target = convert.target_for(source, item.track.duration_ms, chosen_prefs.bitrate, apple=False)
+                    if target is not None and not convert.available():
+                        target = None
+                    size = convert.estimated_size(source, item.track.duration_ms, target)
+                    if not ipod.fits_file(size):
                         plan.skipped.append((item, "it's 4 GB or bigger (FAT32 can't hold it)"))
                         continue
-                    relative = song_path(item, source.suffix.lower())
+                    extension = ".m4a" if target is not None else source.suffix.lower()
+                    relative = song_path(item, extension)
                     stem, number = relative.rsplit(".", 1)[0], 2
                     while relative.casefold() in taken or (root / relative).exists():
-                        relative = f"{stem} ({number}){source.suffix.lower()}"
+                        relative = f"{stem} ({number}){extension}"
                         number += 1
                     taken.add(relative.casefold())
                     placed[item.key] = relative
                     plan.copy.append((item, relative))
-                    plan.bytes_to_copy += source.stat().st_size
+                    if target is not None:
+                        plan.convert[item.key] = target
+                    plan.bytes_to_copy += size
                 else:
                     continue  # not downloaded yet
             entries.append((item, placed[item.key]))
@@ -242,29 +251,39 @@ def apply(library: Library, plan: RockboxPlan, say: Say, should_stop=None, progr
 
         raise SyncError("There isn't enough free space on the iPod for this sync.")
     state = load_state(root)
-    for number, (item, relative) in enumerate(plan.copy, start=1):
-        if should_stop and should_stop():
-            say("Stopped. Sync again to copy the rest.")
-            break
-        source = pathlib.Path(item.file_path)  # type: ignore[arg-type]
-        target = root / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        say(f"[{number}/{len(plan.copy)}] Copying {item.track.display()}")
-        if progress:
-            progress(number, len(plan.copy), item.track.display())
-        partial = target.with_name(target.name + ".part")
-        shutil.copyfile(source, partial)
-        if partial.stat().st_size != source.stat().st_size:
-            partial.unlink(missing_ok=True)
-            raise OSError(f"Copy of {source.name} didn't verify.")
-        os.replace(partial, target)
-        state["files"][item.key] = relative
-        cover = target.parent / "cover.jpg"
-        if not cover.exists():
-            data = _cover_jpeg(source)
-            if data:
-                cover.write_bytes(data)
-        save_state(root, state)  # after each song: a stopped sync knows what it copied
+    from synclassic import convert
+
+    with convert.Converter([(item.key, pathlib.Path(item.file_path), plan.convert[item.key], item.track)  # type: ignore[arg-type]
+                            for item, _ in plan.copy if item.key in plan.convert]) as converter:
+        for number, (item, relative) in enumerate(plan.copy, start=1):
+            if should_stop and should_stop():
+                say("Stopped. Sync again to copy the rest.")
+                break
+            original = pathlib.Path(item.file_path)  # type: ignore[arg-type]
+            source = original
+            if item.key in plan.convert:
+                say(f"[{number}/{len(plan.copy)}] Converting {item.track.display()}")
+                source = converter.get(item.key)
+            target = root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            say(f"[{number}/{len(plan.copy)}] Copying {item.track.display()}")
+            if progress:
+                progress(number, len(plan.copy), item.track.display())
+            partial = target.with_name(target.name + ".part")
+            shutil.copyfile(source, partial)
+            if partial.stat().st_size != source.stat().st_size:
+                partial.unlink(missing_ok=True)
+                raise OSError(f"Copy of {source.name} didn't verify.")
+            os.replace(partial, target)
+            if source is not original:
+                source.unlink(missing_ok=True)
+            state["files"][item.key] = relative
+            cover = target.parent / "cover.jpg"
+            if not cover.exists():
+                data = _cover_jpeg(original)
+                if data:
+                    cover.write_bytes(data)
+            save_state(root, state)  # after each song: a stopped sync knows what it copied
     for key, (relative, text) in plan.playlists.items():
         if key in plan.changed_playlists:
             target = root / relative

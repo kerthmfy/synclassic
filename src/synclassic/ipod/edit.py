@@ -30,6 +30,7 @@ def mac_time(unix: float | None = None) -> int:
 
 FILETYPES = {
     "m4a": (0x4D344120, "AAC audio file", 0x33),  # "M4A "
+    "alac": (0x4D344120, "Apple Lossless audio file", 0x33),  # "M4A " too
     "m4b": (0x4D344220, "AAC audio file", 0x33),  # "M4B ": audiobooks
     "m4v": (0x4D345620, "MPEG-4 video file", 0),  # "M4V ": music videos
     "mp3": (0x4D503320, "MPEG audio file", 0x0C),  # "MP3 "
@@ -49,7 +50,7 @@ DEFAULT_MHIP_LENGTH = 0x4C
 @dataclass
 class NewSong:
     location: str  # ":iPod_Control:Music:F12:ABCD.m4a"
-    filetype: str  # m4a / mp3 / wav / aif
+    filetype: str  # m4a / alac / mp3 / wav / aif
     size: int
     length_ms: int
     bitrate: int  # kbps
