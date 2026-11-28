@@ -912,7 +912,9 @@ def cmd_doctor(args) -> int:
     for problem in problems:
         say(f"  ✗ {problem}")
     if not problems:
-        say("  ✓ ffmpeg and a JavaScript runtime are installed")
+        from synclassic import tools
+
+        say(f"  ✓ ffmpeg: {tools.where('ffmpeg')}; deno: {tools.where('deno')}")
     try:
         client = SpotifyClient.from_saved_login()
     except spotify_auth.SpotifyAuthError as error:
@@ -1057,6 +1059,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from synclassic import tools
+
+    tools.add_to_path()  # also when run by the background agent or from the standalone app
     parser = build_parser()
     args = parser.parse_args(argv)
     if not getattr(args, "func", None):

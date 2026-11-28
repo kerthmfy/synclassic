@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "synclassic"
-version = "0.1.0"
+version = "0.2.0"
 description = "Spotify playlists to a classic iPod: download, tag, and keep playlists in sync."
 readme = "README.md"
 license = { text = "GPL-3.0-or-later" }

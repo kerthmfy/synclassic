@@ -481,17 +481,30 @@ mode the audio is copied without re-encoding whenever possible.
 
 ## The standalone app (.dmg)
 
-`Synclassic.app` with Python and everything inside, no setup or Terminal needed (only Homebrew's
-ffmpeg and deno, which the app asks for on first launch: `brew install ffmpeg deno`). Two ways
-to make it:
+`Synclassic.app` with Python, ffmpeg and deno inside: no Homebrew, no Terminal. The first time
+it opens, a short setup assistant asks where your music goes and how the app should look. Two
+ways to make it:
 
-- **On GitHub**: push a version tag (`git tag v0.2 && git push --tags`) or run Actions → **Mac
+- **On GitHub**: push a version tag (`git tag v0.2.0 && git push --tags`) or run Actions → **Mac
   app** → Run workflow. GitHub builds it on a Mac; the `.dmg` is attached to the release (or to
   the workflow run).
 - **On your Mac**: `packaging/build_mac_app.sh` → `dist/Synclassic.app` and `dist/Synclassic-<version>.dmg`.
   With Xcode installed, the glass icon (Icon Composer) is compiled in.
 
-The app is signed ad hoc, not notarized: the first time, right-click it → **Open**.
+ffmpeg 6.0 and deno 2.4.5 are downloaded during the build at exact versions, and each download's
+fingerprint is checked (`packaging/fetch_tools.sh`; their licences go inside the app). If they
+can't be fetched, the app is built without them and uses Homebrew's.
+
+**New versions**: Help → **Check for Updates…** (and once a day by itself, Settings → General)
+looks at this repository's latest release and offers its `.dmg`. Nothing installs by itself.
+
+**Signing**: without an Apple Developer account the app is signed ad hoc: the first time,
+right-click it → **Open**. With a Developer ID ($99/year), add these repository secrets and
+GitHub signs and notarizes it, so it opens like any app: `MACOS_CERTIFICATE` (your Developer ID
+Application certificate as a base64 `.p12`), `MACOS_CERTIFICATE_PASSWORD`, `MACOS_SIGN_ID`
+(e.g. `Developer ID Application: Your Name (TEAMID)`), `APPLE_ID`, `APPLE_TEAM_ID` and
+`APPLE_APP_PASSWORD` (an app-specific password). On your own Mac, the same with
+`SYNCLASSIC_SIGN_ID=… packaging/build_mac_app.sh` (see the top of the script).
 
 ## Development
 

@@ -254,6 +254,9 @@ class MainWindow(QMainWindow):
         view_menu.addSeparator()
         view_menu.addAction(self.log_action)
         help_menu = bar.addMenu("Help")
+        updates = QAction("Check for Updates…", self)
+        updates.triggered.connect(lambda: self.check_for_updates(quiet=False))
+        help_menu.addAction(updates)
         about = QAction("About Synclassic", self)
         about.triggered.connect(lambda: QMessageBox.about(
             self, "About Synclassic", f"<b>Synclassic {__version__}</b><br>Your Spotify playlists on your iPod."))
@@ -2128,6 +2131,52 @@ class MainWindow(QMainWindow):
         number = getattr(self.player, "position", 0) + 1
         total = len(getattr(self.player, "order", []) or [])
         self.ipod_graphic.set_now_playing(item, number if item else 0, total)
+
+    # --- new versions of Synclassic ---------------------------------------------------------------
+
+    def check_for_updates(self, quiet: bool = True) -> None:
+        """quiet: the daily check (says nothing unless there's something new, skipped versions stay quiet)."""
+        from synclassic import app_update
+
+        def work(task):
+            if quiet:
+                return app_update.check_now()
+            release = app_update.latest()
+            return release if release and app_update.is_newer(release.version) else False
+
+        def show(release):
+            if release:
+                self._offer_update(release)
+            elif not quiet:
+                QMessageBox.information(self, "Check for Updates",
+                                        f"You have the newest Synclassic ({__version__}).")
+
+        def failed(error):
+            if not quiet:
+                QMessageBox.information(self, "Check for Updates", str(error))
+
+        run_in_background(self, work, show, failed)
+
+    def _offer_update(self, release) -> None:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        from synclassic import app_update
+
+        box = QMessageBox(QMessageBox.Icon.Information, "A new Synclassic",
+                          f"Synclassic {release.version} is out (you have {__version__}).", parent=self)
+        box.setInformativeText(app_update.how_to_get(release))
+        if release.notes:
+            box.setDetailedText(release.notes)
+        download = box.addButton("Download" if app_update.standalone() else "See What's New",
+                                 QMessageBox.ButtonRole.AcceptRole)
+        skip = box.addButton("Skip This Version", QMessageBox.ButtonRole.RejectRole)
+        box.addButton("Later", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        if box.clickedButton() is download:
+            QDesktopServices.openUrl(QUrl(release.download if app_update.standalone() else release.page))
+        elif box.clickedButton() is skip:
+            app_update.skip(release.version)
 
     # --- Lyrics (karaoke) and the Visualizer ----------------------------------------------------
 

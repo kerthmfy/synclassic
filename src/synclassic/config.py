@@ -77,6 +77,10 @@ class Settings:
     sync_sound: bool = True
     # The look: aqua (the original), graphite, dark (Midnight) or auto (dark when macOS is).
     appearance: str = "aqua"
+    # Look for a new version of Synclassic on GitHub once a day (it only tells you).
+    check_updates: bool = True
+    # The first-run setup assistant has been shown.
+    setup_done: bool = False
     # Songs you rate 5 stars on the iPod are "loved" on Last.fm (and un-loved when you lower them).
     lastfm_love: bool = True
     # On-The-Go playlists made on the iPod are also made as private playlists in your Spotify
@@ -109,6 +113,7 @@ SETTING_HELP = {
     "music_videos": "on/off: also get official music videos, converted for the iPod",
     "sync_sound": "on/off: a chime when a sync finishes",
     "appearance": "aqua, graphite, dark (Midnight) or auto (dark when macOS is in Dark Mode)",
+    "check_updates": "on/off: tell me when there's a new version of Synclassic (checks GitHub once a day)",
     "lastfm_love": "on/off: love songs on Last.fm that you rate 5 stars on the iPod",
     "otg_to_spotify": "on/off: make the iPod's On-The-Go playlists in your Spotify account too (needs Spotify login)",
     "store_country": "country of Apple's catalogue in Find Music (e.g. PH, GB, JP); empty = this Mac's region",
@@ -179,7 +184,7 @@ def set_setting(settings: Settings, key: str, value: str) -> None:
         if value not in ("artist", "playlist"):
             raise ValueError("folder_layout must be artist or playlist")
     elif key in ("full_playlist_reader", "sound_check", "lyrics", "song_info", "skip_on_ipod", "sync_on_connect", "music_videos", "sync_sound",
-                 "lastfm_love", "otg_to_spotify"):
+                 "lastfm_love", "otg_to_spotify", "check_updates"):
         lowered = value.lower()
         if lowered not in ("on", "off", "true", "false", "yes", "no", "1", "0"):
             raise ValueError(f"{key} must be on or off")

@@ -152,6 +152,9 @@ class SettingsDialog(QDialog):
         self.sync_sound = QCheckBox("Play a chime when a sync finishes")
         self.sync_sound.setChecked(self.settings.sync_sound)
         form.addRow("", self.sync_sound)
+        self.check_updates = QCheckBox("Tell me when there's a new version of Synclassic")
+        self.check_updates.setChecked(self.settings.check_updates)
+        form.addRow("", self.check_updates)
         from synclassic.gui import theme
 
         self.appearance = QComboBox()
@@ -416,6 +419,7 @@ class SettingsDialog(QDialog):
         self.settings.music_videos = self.music_videos.isChecked()
         self.settings.sync_on_connect = self.sync_on_connect.isChecked()
         self.settings.sync_sound = self.sync_sound.isChecked()
+        self.settings.check_updates = self.check_updates.isChecked()
         self.settings.lossless_to = self.lossless_to.currentData()
         if self.settings.appearance != self.appearance.currentData():
             from PySide6.QtWidgets import QApplication

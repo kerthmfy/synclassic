@@ -1,7 +1,15 @@
 name: Mac app
 
 # Builds Synclassic.app and a .dmg on GitHub's Macs: by hand (Actions → Mac app → Run workflow),
-# or for every version tag (git tag v1.0 && git push --tags), which also makes a release with it.
+# or for every version tag (git tag v0.2.0 && git push --tags), which also makes a release with
+# it; the app's "Check for Updates" finds that release.
+#
+# ffmpeg and deno go inside the app. Signing and notarizing happen only when these repository
+# secrets exist (Settings → Secrets and variables → Actions); without them the app is ad-hoc signed:
+#   MACOS_CERTIFICATE           your "Developer ID Application" certificate (.p12), base64-encoded
+#   MACOS_CERTIFICATE_PASSWORD  the .p12's password
+#   MACOS_SIGN_ID               e.g. "Developer ID Application: Your Name (TEAMID)"
+#   APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD   for notarizing (an app-specific password)
 on:
   workflow_dispatch:
   push:
@@ -13,12 +21,35 @@ permissions:
 jobs:
   build:
     runs-on: macos-14
+    env:
+      HAS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Signing certificate (only with the secrets)
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        if: env.HAS_CERTIFICATE == 'true'
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/certificate.p12" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/certificate.p12"
       - name: Build
+        env:
+          SYNCLASSIC_SIGN_ID: ${{ secrets.MACOS_SIGN_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: packaging/build_mac_app.sh
       - uses: actions/upload-artifact@v4
         with:
@@ -29,3 +60,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*.dmg
+          generate_release_notes: true

@@ -10,7 +10,9 @@ def main() -> int:
 
     from synclassic.macapp import name_menu_bar_app
 
-    _add_homebrew_to_path()
+    from synclassic import tools
+
+    tools.add_to_path()  # the app's own ffmpeg and deno, or Homebrew's
     name_menu_bar_app()  # must happen before the Qt application starts
 
     from synclassic.gui import theme
@@ -37,8 +39,24 @@ def main() -> int:
     window.show()
     from PySide6.QtCore import QTimer
 
-    QTimer.singleShot(800, lambda: _check_tools(window))
+    QTimer.singleShot(400, lambda: _first_run(window))
     return app.exec()
+
+
+def _first_run(window) -> None:
+    """The setup assistant the very first time; afterwards a reminder if the tools are missing,
+    and the daily look for a new version."""
+    from synclassic import app_update
+    from synclassic.config import load_settings
+    from synclassic.gui.setup_assistant import SetupAssistant, should_show
+
+    if should_show(window.library):
+        SetupAssistant(window).exec()
+        window.refresh()
+    else:
+        _check_tools(window)
+    if load_settings().check_updates and app_update.due():
+        window.check_for_updates(quiet=True)
 
 
 def _check_tools(window) -> None:
@@ -53,19 +71,6 @@ def _check_tools(window) -> None:
             window, "One more thing",
             "Synclassic needs two free tools to download music:\n\n" + "\n".join(problems)
             + "\n\nAll at once, in Terminal: brew install ffmpeg deno\n(Homebrew: https://brew.sh)")
-
-
-def _add_homebrew_to_path() -> None:
-    """Apps opened from Finder don't get Terminal's PATH; ffmpeg and deno usually live here."""
-    import os
-
-    if sys.platform != "darwin":
-        return
-    parts = os.environ.get("PATH", "").split(os.pathsep)
-    for folder in ("/usr/local/bin", "/opt/homebrew/bin"):
-        if folder not in parts and os.path.isdir(folder):
-            parts.insert(0, folder)
-    os.environ["PATH"] = os.pathsep.join(parts)
 
 
 if __name__ == "__main__":
