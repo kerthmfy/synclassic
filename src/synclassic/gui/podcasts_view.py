@@ -8,6 +8,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap, QRadialGradient
 from PySide6.QtWidgets import QAbstractItemView, QFrame, QHeaderView, QTreeWidget, QTreeWidgetItem
 
+from synclassic.gui import theme
 from synclassic.gui.picker_dialog import fmt_time
 from synclassic.gui.widgets import StatusPillDelegate
 from synclassic.podcasts.store import Podcast, StoredEpisode
@@ -95,7 +96,7 @@ class PodcastsPage(QTreeWidget):
             show.setData(0, ID_ROLE, podcast.id)
             show.setFont(0, bold)
             show.setToolTip(0, podcast.description[:400])
-            show.setForeground(3, QColor("#5b5b5b"))
+            show.setForeground(3, QColor(theme.c("dim")))
             if podcast.id in covers:
                 show.setIcon(0, QIcon(covers[podcast.id]))
             elif unplayed:
@@ -110,7 +111,7 @@ class PodcastsPage(QTreeWidget):
                     row.setIcon(0, self._dot)
                 if not episode.downloaded:
                     for column in range(4):
-                        row.setForeground(column, QColor("#8a8a8a"))
+                        row.setForeground(column, QColor(theme.c("faint")))
                 row.setToolTip(3, episode.description[:600])
                 if episode.error and status == "Failed":
                     row.setToolTip(4, episode.error)

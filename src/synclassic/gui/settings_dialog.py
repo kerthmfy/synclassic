@@ -152,6 +152,14 @@ class SettingsDialog(QDialog):
         self.sync_sound = QCheckBox("Play a chime when a sync finishes")
         self.sync_sound.setChecked(self.settings.sync_sound)
         form.addRow("", self.sync_sound)
+        from synclassic.gui import theme
+
+        self.appearance = QComboBox()
+        for value, text in theme.APPEARANCES.items():
+            self.appearance.addItem(text, value)
+        self.appearance.setCurrentIndex(max(0, self.appearance.findData(self.settings.appearance)))
+        self.appearance.setToolTip("Aqua is the original iTunes 7 look; Midnight is a dark version.")
+        form.addRow("Appearance", self.appearance)
         self.lossless_to = QComboBox()
         self.lossless_to.addItem("Apple Lossless (same sound, bigger)", "alac")
         self.lossless_to.addItem("AAC 256 kbps (about a fifth of the size)", "aac")
@@ -409,6 +417,13 @@ class SettingsDialog(QDialog):
         self.settings.sync_on_connect = self.sync_on_connect.isChecked()
         self.settings.sync_sound = self.sync_sound.isChecked()
         self.settings.lossless_to = self.lossless_to.currentData()
+        if self.settings.appearance != self.appearance.currentData():
+            from PySide6.QtWidgets import QApplication
+
+            from synclassic.gui import theme
+
+            self.settings.appearance = self.appearance.currentData()
+            theme.apply(QApplication.instance(), self.settings.appearance)
         self._apply_background()
         self.settings.folder_layout = self.layout_choice.currentData()
         self.settings.scrobble_after_sync = self.scrobble_after.isChecked()

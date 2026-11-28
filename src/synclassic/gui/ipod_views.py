@@ -110,7 +110,7 @@ class SongsModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.TextAlignmentRole and column in (1, 5):
             return int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         if role == Qt.ItemDataRole.ForegroundRole and column == 6:
-            return QColor("#4a4a4a")
+            return QColor(theme.c("dim"))
         return None
 
 
@@ -190,7 +190,7 @@ class SongTable(QTableView):
             header.setSectionResizeMode(column, mode)
         for column, width in ((1, 52), (4, 110), (5, 48), (6, 70), (7, 128)):
             header.resizeSection(column, width)
-        self.setStyleSheet("QTableView::item { border-right: 1px solid %s; padding: 0 4px; }" % theme.GRID)
+        self.setStyleSheet("QTableView::item { padding: 0 4px; }")
 
     def set_songs(self, songs: list[Song], keep_order: bool = False) -> None:
         self.source.set_songs(songs)
@@ -302,11 +302,11 @@ class AlbumDelegate(QStyledItemDelegate):
         artist_font.setPixelSize(11)
         text_width = int(rect.width() - 8)
         painter.setFont(title_font)
-        painter.setPen(QColor("#000000"))
+        painter.setPen(QColor(theme.c("text")))
         painter.drawText(QRectF(rect.left() + 4, cover_rect.bottom() + 5, text_width, 15), Qt.AlignmentFlag.AlignHCenter,
                          QFontMetrics(title_font).elidedText(album.title, Qt.TextElideMode.ElideRight, text_width))
         painter.setFont(artist_font)
-        painter.setPen(QColor("#5e5e5e"))
+        painter.setPen(QColor(theme.c("dim")))
         painter.drawText(QRectF(rect.left() + 4, cover_rect.bottom() + 20, text_width, 15), Qt.AlignmentFlag.AlignHCenter,
                          QFontMetrics(artist_font).elidedText(album.artist, Qt.TextElideMode.ElideRight, text_width))
         painter.restore()
@@ -326,7 +326,7 @@ class AlbumGrid(QListView):
         self.setSpacing(8)
         self.setItemDelegate(AlbumDelegate(self))
         self.setFrameShape(QFrame.Shape.NoFrame)
-        self.setStyleSheet("QListView { background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #ffffff, stop:1 #eef1f5); }")
+        self.setObjectName("albumGrid")  # background from the theme
         self.placeholder = placeholder_cover(COVER)
         self.albums: list[Album] = []
         self.clicked.connect(self._chosen)
@@ -451,10 +451,7 @@ class BrowserPage(QSplitter):
 
         header = QLabel(f"  {title}")
         header.setFixedHeight(20)
-        header.setStyleSheet(
-            "border-bottom: 1px solid #8d8d8d; border-right: 1px solid #b9b9b9;"
-            "background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #ffffff, stop:0.5 #f1f1f1, stop:0.51 #e4e4e4, stop:1 #eeeeee);"
-        )
+        header.setProperty("role", "listHeader")  # looks like a column header (theme)
         layout.addWidget(header)
         layout.addWidget(self.list)
         self.songs = SongTable()

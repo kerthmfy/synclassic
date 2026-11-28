@@ -46,14 +46,19 @@ class GradientBar(QWidget):
     """The graphite gradient behind the toolbar (top) or the bottom bar."""
 
     def __init__(self, top: str, bottom: str, line_at_bottom: bool, parent=None):
+        """`top`, `bottom`: palette names (e.g. "toolbar_top") or colours."""
         super().__init__(parent)
         self.top, self.bottom, self.line_at_bottom = top, bottom, line_at_bottom
+
+    @staticmethod
+    def _colour(value: str) -> str:
+        return value if value.startswith("#") else theme.c(value)
 
     def paintEvent(self, event):  # noqa: N802
         painter = QPainter(self)
         rect = QRectF(self.rect())
-        painter.fillRect(rect, _gradient(rect, (0, self.top), (1, self.bottom)))
-        painter.setPen(QColor(255, 255, 255, 150))
+        painter.fillRect(rect, _gradient(rect, (0, self._colour(self.top)), (1, self._colour(self.bottom))))
+        painter.setPen(QColor(255, 255, 255, 40 if theme.is_dark() else 150))
         painter.drawLine(0, 0 if self.line_at_bottom else 1, self.width(), 0 if self.line_at_bottom else 1)
         painter.setPen(QColor(theme.TOOLBAR_LINE))
         y = self.height() - 1 if self.line_at_bottom else 0
@@ -105,7 +110,7 @@ class GlossyButton(QAbstractButton):
         self._draw_symbol(painter, circle.center(), d, color)
         # Label.
         painter.setFont(self.label_font)
-        painter.setPen(QColor("#262626" if enabled else "#8f8f8f"))
+        painter.setPen(QColor(theme.c("text") if enabled else theme.c("disabled_text")))
         painter.drawText(QRectF(0, d + 3, self.width(), 14), Qt.AlignmentFlag.AlignHCenter, self.label)
 
     def _draw_symbol(self, painter: QPainter, c: QPointF, d: float, color: QColor) -> None:
@@ -327,7 +332,7 @@ class SourceListDelegate(QStyledItemDelegate):
             active = bool(option.state & QStyle.StateFlag.State_Active)
             top, bottom = (theme.SELECT_TOP, theme.SELECT_BOTTOM) if active else (theme.SELECT_INACTIVE_TOP, theme.SELECT_INACTIVE_BOTTOM)
             painter.fillRect(rect, _gradient(rect, (0, top), (1, bottom)))
-            painter.setPen(QColor(theme.SELECT_BORDER if active else "#7d8ca3"))
+            painter.setPen(QColor(theme.SELECT_BORDER if active else theme.c("select_inactive_border")))
             painter.drawLine(rect.topLeft(), rect.topRight())
         indent = 16 * (index.data(DEPTH_ROLE) or 0)
         if index.data(ICON_ROLE) in ("ipod", "syncing"):  # disclosure triangle: the iPod's contents are below
@@ -338,7 +343,7 @@ class SourceListDelegate(QStyledItemDelegate):
             triangle.lineTo(x + 3.5, y + 3)
             triangle.closeSubpath()
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor("#ffffff" if selected else "#5d6b7d"))
+            painter.setBrush(QColor("#ffffff" if selected else theme.c("source_header")))
             painter.drawPath(triangle)
         icon_rect = QRectF(rect.left() + 18 + indent, rect.center().y() - 8, 16, 16)
         draw_source_icon(painter, icon_rect, index.data(ICON_ROLE) or "playlist")
@@ -355,7 +360,7 @@ class SourceListDelegate(QStyledItemDelegate):
             width = QFontMetrics(small).horizontalAdvance(str(count)) + 12
             pill = QRectF(rect.right() - width - 8, rect.center().y() - 7, width, 14)
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(255, 255, 255, 230) if selected else QColor("#8a9bb4"))
+            painter.setBrush(QColor(255, 255, 255, 230) if selected else QColor(theme.c("source_badge")))
             painter.drawRoundedRect(pill, 7, 7)
             painter.setPen(QColor(theme.SELECT_BOTTOM) if selected else QColor("#ffffff"))
             painter.drawText(pill, Qt.AlignmentFlag.AlignCenter, str(count))
@@ -365,7 +370,7 @@ class SourceListDelegate(QStyledItemDelegate):
             painter.setPen(QColor(0, 0, 0, 90))
             painter.drawText(text_rect.translated(0, 1), Qt.AlignmentFlag.AlignVCenter,
                              QFontMetrics(font).elidedText(index.data(), Qt.TextElideMode.ElideRight, int(text_rect.width())))
-        painter.setPen(QColor("#ffffff" if selected else "#000000"))
+        painter.setPen(QColor("#ffffff" if selected else theme.c("source_text")))
         painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter,
                          QFontMetrics(font).elidedText(index.data(), Qt.TextElideMode.ElideRight, int(text_rect.width())))
         painter.restore()
@@ -751,6 +756,7 @@ class CapacityBar(QWidget):
         painter.setClipPath(path)
         x = bar.left()
         colors = {name: (top, bottom) for name, top, bottom in self.SEGMENTS}
+        colors["Free"] = (theme.c("free_top"), theme.c("free_bottom"))
         for name, value in self.values:
             width = bar.width() * value / total
             segment = QRectF(x, bar.top(), width, bar.height())
@@ -775,7 +781,7 @@ class CapacityBar(QWidget):
             painter.setBrush(_gradient(dot, (0, top), (1, bottom)))
             painter.drawEllipse(dot)
             text = f"{name}  {value / 1000**3:.1f} GB"
-            painter.setPen(QColor("#222222"))
+            painter.setPen(QColor(theme.c("text")))
             painter.drawText(QPointF(x + 15, bar.bottom() + 17), text)
             x += QFontMetrics(font).horizontalAdvance(text) + 34
 

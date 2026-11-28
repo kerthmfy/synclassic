@@ -75,6 +75,8 @@ class Settings:
     store_country: str = ""
     # A chime when a sync finishes.
     sync_sound: bool = True
+    # The look: aqua (the original), graphite, dark (Midnight) or auto (dark when macOS is).
+    appearance: str = "aqua"
     # Songs you rate 5 stars on the iPod are "loved" on Last.fm (and un-loved when you lower them).
     lastfm_love: bool = True
     # On-The-Go playlists made on the iPod are also made as private playlists in your Spotify
@@ -106,6 +108,7 @@ SETTING_HELP = {
     "sync_on_connect": "on/off: Update & Sync by itself when the iPod is plugged in (app open)",
     "music_videos": "on/off: also get official music videos, converted for the iPod",
     "sync_sound": "on/off: a chime when a sync finishes",
+    "appearance": "aqua, graphite, dark (Midnight) or auto (dark when macOS is in Dark Mode)",
     "lastfm_love": "on/off: love songs on Last.fm that you rate 5 stars on the iPod",
     "otg_to_spotify": "on/off: make the iPod's On-The-Go playlists in your Spotify account too (needs Spotify login)",
     "store_country": "country of Apple's catalogue in Find Music (e.g. PH, GB, JP); empty = this Mac's region",
@@ -163,6 +166,10 @@ def set_setting(settings: Settings, key: str, value: str) -> None:
             raise ValueError("parallel_downloads must be 1, 2 or 3")
         settings.parallel_downloads = int(value)
         return
+    elif key == "appearance":
+        value = value.lower()
+        if value not in ("aqua", "graphite", "dark", "auto"):
+            raise ValueError("appearance must be aqua, graphite, dark or auto")
     elif key == "lossless_to":
         value = value.lower()
         if value not in ("alac", "aac"):

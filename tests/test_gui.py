@@ -795,3 +795,24 @@ def test_choose_playlists_for_this_ipod_and_switch_between_ipods(app, monkeypatc
     window._detect_ipod()  # nothing changed: stays on the one you picked
     assert window.ipod.root == first.root
     window.close()
+
+
+def test_appearance_switches_live(app):
+    from synclassic import config
+    from synclassic.gui import theme
+    from synclassic.gui.main_window import MainWindow
+
+    window = MainWindow()
+    try:
+        assert theme.apply(app, "dark") == "dark" and theme.is_dark()
+        assert theme.c("window") in app.styleSheet() and app.palette().window().color().name() == "#2b2b2d"
+        assert theme.SOURCE_LIST == theme.MIDNIGHT["source_list"]  # the old names follow the palette
+        assert theme.apply(app, "graphite") == "graphite" and theme.c("select_bottom") == "#6c7a90"
+        assert theme.resolve("auto", system_dark=True) == "dark" and theme.resolve("auto") == "aqua"
+        assert theme.resolve("nonsense") == "aqua"
+        settings = config.Settings()
+        config.set_setting(settings, "appearance", "Dark")
+        assert settings.appearance == "dark"
+    finally:
+        theme.apply(app, "aqua")
+        window.close()

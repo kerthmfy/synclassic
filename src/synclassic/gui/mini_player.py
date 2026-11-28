@@ -96,7 +96,7 @@ class MiniPlayer(QWidget):
         self.setWindowTitle("Synclassic")
         self.setFixedHeight(78)
         self.setMinimumWidth(460)
-        bar = GradientBar(theme.TOOLBAR_TOP, theme.TOOLBAR_BOTTOM, line_at_bottom=False)
+        bar = GradientBar("toolbar_top", "toolbar_bottom", line_at_bottom=False)
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(bar)

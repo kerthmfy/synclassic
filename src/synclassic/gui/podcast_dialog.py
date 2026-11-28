@@ -56,7 +56,7 @@ class SubscribeDialog(QDialog):
         self.results.itemSelectionChanged.connect(self._update_buttons)
         layout.addWidget(self.results, 1)
         self.status = QLabel("")
-        self.status.setStyleSheet("color: #5b5b5b;")
+        self.status.setProperty("role", "dim")
         layout.addWidget(self.status)
 
         self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)

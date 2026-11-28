@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pathlib
+import sqlite3
 import subprocess
 import sys
 
@@ -159,6 +160,7 @@ class MainWindow(QMainWindow):
         self._ipod_timer.start()
         self._detect_ipod()
 
+        self.theme_changed()
         self.refresh()
         self._apply_menu_bar_player()
 
@@ -259,7 +261,7 @@ class MainWindow(QMainWindow):
         return button
 
     def _build_toolbar(self) -> QWidget:
-        bar = GradientBar(theme.TOOLBAR_TOP, theme.TOOLBAR_BOTTOM, line_at_bottom=True)
+        bar = GradientBar("toolbar_top", "toolbar_bottom", line_at_bottom=True)
         row = QHBoxLayout(bar)
         row.setContentsMargins(12, 6, 12, 6)
         row.setSpacing(4)
@@ -273,21 +275,15 @@ class MainWindow(QMainWindow):
         volume = QHBoxLayout()
         volume.setSpacing(3)
         quiet, loud = QLabel(), QLabel()
-        quiet.setPixmap(speaker_pixmap(0, 12))
-        loud.setPixmap(speaker_pixmap(2, 12))
+        self._speakers = (quiet, loud)
         for label in (quiet, loud):
             label.setStyleSheet("background: transparent;")
         self.volume = QSlider(Qt.Orientation.Horizontal)
         self.volume.setRange(0, 100)
         self.volume.setValue(80)
         self.volume.setFixedWidth(80)
-        self.volume.setStyleSheet(
-            "QSlider { background: transparent; }"
-            "QSlider::groove:horizontal { height: 4px; border: 1px solid #6e6e6e; border-radius: 2px; background: #f4f4f4; }"
-            "QSlider::sub-page:horizontal { border-radius: 2px; background: #8d8d8d; }"
-            "QSlider::handle:horizontal { width: 12px; margin: -5px 0; border-radius: 6px; border: 1px solid #5b5b5b;"
-            " background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #ffffff, stop:1 #b9b9b9); }"
-        )
+        self.volume.setObjectName("volume")  # styled by the theme
+        self.volume.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.volume.valueChanged.connect(self.player.set_volume)
         volume.addWidget(quiet)
         volume.addWidget(self.volume)
@@ -343,22 +339,20 @@ class MainWindow(QMainWindow):
         self.sidebar.setItemDelegate(SourceListDelegate(self.sidebar))
         self.sidebar.setFrameShape(QFrame.Shape.NoFrame)
         self.sidebar.setMinimumWidth(190)
-        self.sidebar.setStyleSheet(f"QTreeWidget {{ background: {theme.SOURCE_LIST}; border: none; }}")
+        self.sidebar.setObjectName("sourceList")
         self.sidebar.currentItemChanged.connect(self._sidebar_changed)
         self.sidebar.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.sidebar.customContextMenuRequested.connect(self._sidebar_menu)
         source_column = QWidget()
-        source_column.setStyleSheet(f"background: {theme.SOURCE_LIST};")
+        source_column.setObjectName("sourceColumn")
+        source_column.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)
         column = QVBoxLayout(source_column)
         column.setContentsMargins(0, 0, 0, 0)
         column.setSpacing(0)
         column.addWidget(self.sidebar, 1)
         self.artwork_title = QLabel("  Now Playing")
         self.artwork_title.setFixedHeight(20)
-        self.artwork_title.setStyleSheet(
-            "color: #3b3b3b; font-size: 11px; border-top: 1px solid #9aa5b3;"
-            "background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #eef1f5, stop:1 #c9d1db);"
-        )
+        self.artwork_title.setObjectName("artworkTitle")
         self.artwork = QLabel()
         self.artwork.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.artwork.setMinimumHeight(150)
@@ -374,7 +368,7 @@ class MainWindow(QMainWindow):
         right_layout.setSpacing(0)
 
         # Thin strip above the song list: playlist name, where it comes from, Update.
-        self.header_strip = GradientBar("#f4f4f4", "#dcdcdc", line_at_bottom=True)
+        self.header_strip = GradientBar("strip_top", "strip_bottom", line_at_bottom=True)
         strip = QHBoxLayout(self.header_strip)
         strip.setContentsMargins(12, 5, 10, 5)
         text = QVBoxLayout()
@@ -385,7 +379,8 @@ class MainWindow(QMainWindow):
         title_font.setBold(True)
         self.title.setFont(title_font)
         self.subtitle = QLabel()
-        self.subtitle.setStyleSheet("color: #5b5b5b; font-size: 11px;")
+        self.subtitle.setProperty("role", "dim")
+        self.subtitle.setStyleSheet("font-size: 11px;")
         self.subtitle.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         for label in (self.title, self.subtitle):
             label.setStyleSheet(label.styleSheet() + "background: transparent;")
@@ -405,7 +400,7 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(self.header_strip)
         self.note = QLabel()
         self.note.setWordWrap(True)
-        self.note.setStyleSheet("background: #fff6d5; color: #6b4b00; border-bottom: 1px solid #e3cf8a; padding: 4px 12px;")
+        self.note.setObjectName("note")
         right_layout.addWidget(self.note)
 
         self.table = QTreeWidget()
@@ -472,8 +467,7 @@ class MainWindow(QMainWindow):
         self.log.setReadOnly(True)
         self.log.setMaximumBlockCount(5000)
         self.log.setPlaceholderText("Activity will show here.")
-        self.log.setStyleSheet("QPlainTextEdit { font-family: Monaco, Menlo, monospace; font-size: 11px; border: none;"
-                               " border-top: 1px solid #a3a3a3; }")
+        self.log.setObjectName("log")
         self.log.setFixedHeight(130)
         self.log.hide()
         right_layout.addWidget(self.log)
@@ -485,15 +479,16 @@ class MainWindow(QMainWindow):
 
     def _build_empty_page(self) -> QWidget:
         page = QWidget()
-        page.setStyleSheet("background: #ffffff;")
+        page.setObjectName("welcomePage")
+        page.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)
         layout = QVBoxLayout(page)
         layout.addStretch(1)
         welcome = QLabel("Add your first playlist")
-        welcome.setStyleSheet("font-size: 20px; font-weight: bold; color: #5b5b5b;")
+        welcome.setObjectName("welcomeTitle")
         welcome.setAlignment(Qt.AlignmentFlag.AlignCenter)
         explain = QLabel("Paste a Spotify link, pick from your Spotify account,\nor import an .m3u8 / .csv file.")
         explain.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        explain.setStyleSheet("color: #7a7a7a;")
+        explain.setObjectName("welcomeText")
         add_button = QPushButton("Add Playlists…")
         add_button.setProperty("aqua", True)
         add_button.clicked.connect(self.add_playlists)
@@ -507,7 +502,7 @@ class MainWindow(QMainWindow):
     def _build_ipod_page(self) -> QWidget:
         page = QWidget()
         page.setObjectName("ipodPage")
-        page.setStyleSheet("#ipodPage { background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #fbfbfb, stop:1 #e6e6e6); }")
+        page.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)
         layout = QVBoxLayout(page)
         layout.setContentsMargins(24, 18, 24, 12)
         top = QHBoxLayout()
@@ -538,7 +533,7 @@ class MainWindow(QMainWindow):
         info.addWidget(self.ipod_name)
         summary = QFrame()
         summary.setObjectName("summary")
-        summary.setStyleSheet("#summary { background: #ffffff; border: 1px solid #b9b9b9; border-radius: 6px; }")
+
         form = QVBoxLayout(summary)
         form.setContentsMargins(14, 10, 14, 10)
         self.ipod_details = QLabel("")
@@ -572,7 +567,7 @@ class MainWindow(QMainWindow):
         info.addLayout(buttons)
         choices = QHBoxLayout()
         self.ipod_choice_label = QLabel("")
-        self.ipod_choice_label.setStyleSheet("color: #4a4a4a;")
+        self.ipod_choice_label.setProperty("role", "dim")
         choose = QPushButton("Choose Playlists…")
         choose.setToolTip("Which playlists go on this iPod, and how big its songs are")
         choose.clicked.connect(self.choose_ipod_playlists)
@@ -595,14 +590,14 @@ class MainWindow(QMainWindow):
         info.addLayout(maintenance)
         details_box = QFrame()
         details_box.setObjectName("details")
-        details_box.setStyleSheet("#details { background: rgba(255,255,255,150); border: 1px solid #c9c9c9; border-radius: 6px; }")
+
         details_layout = QVBoxLayout(details_box)
         details_layout.setContentsMargins(14, 8, 14, 8)
         details_title = QLabel("<b>Technical Details</b>")
         details_title.setStyleSheet("background: transparent;")
         self.ipod_tech = QLabel("")
         self.ipod_tech.setTextFormat(Qt.TextFormat.RichText)
-        self.ipod_tech.setStyleSheet("background: transparent; color: #3b3b3b; font-size: 11px;")
+        self.ipod_tech.setObjectName("ipodTech")
         self.ipod_tech.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         details_layout.addWidget(details_title)
         details_layout.addWidget(self.ipod_tech)
@@ -615,7 +610,7 @@ class MainWindow(QMainWindow):
         return page
 
     def _build_bottom_bar(self) -> QWidget:
-        bar = GradientBar(theme.BOTTOMBAR_TOP, theme.BOTTOMBAR_BOTTOM, line_at_bottom=False)
+        bar = GradientBar("bottombar_top", "bottombar_bottom", line_at_bottom=False)
         bar.setFixedHeight(30)
         row = QHBoxLayout(bar)
         row.setContentsMargins(8, 3, 8, 3)
@@ -624,11 +619,7 @@ class MainWindow(QMainWindow):
             button = QPushButton(text)
             button.setToolTip(tip)
             button.setFixedSize(28, 22)
-            button.setStyleSheet(
-                "QPushButton { border-radius: 3px; padding: 0; font-weight: bold; border: 1px solid #6e6e6e;"
-                " background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #fbfbfb, stop:0.5 #e2e2e2, stop:0.51 #d3d3d3, stop:1 #ececec); }"
-                " QPushButton:pressed { background: #b9b9b9; }"
-            )
+            button.setProperty("role", "bottomButton")  # styled by the theme
             button.clicked.connect(slot)
             return button
 
@@ -643,19 +634,17 @@ class MainWindow(QMainWindow):
 
         self.shuffle_button = square("", "Shuffle", lambda: self.shuffle_action.trigger())
         self.shuffle_button.setCheckable(True)
-        self.shuffle_button.setIcon(QIcon(control_pixmap("shuffle")))
+
         self.repeat_button = square("", "Repeat: Off", lambda: self.repeat_action.trigger())
         self.repeat_button.setCheckable(True)
-        self.repeat_button.setIcon(QIcon(control_pixmap("repeat")))
+
         for button in (self.shuffle_button, self.repeat_button):
             button.setIconSize(QSize(16, 16))
         for button in (self.shuffle_button, self.repeat_button):
-            button.setStyleSheet(button.styleSheet() + " QPushButton:checked { color: #1f5fbf;"
-                                 " background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #c9dcf5, stop:1 #a8c4ea); }")
             row.addWidget(button)
         row.addStretch(1)
         self.summary_label = QLabel("")
-        self.summary_label.setStyleSheet("background: transparent; color: #1f1f1f; font-size: 11px;")
+        self.summary_label.setObjectName("summaryLabel")
         row.addWidget(self.summary_label)
         row.addStretch(1)
         self.log_button = square("≡", "Show activity", lambda: self.log_action.trigger())
@@ -1312,7 +1301,8 @@ class MainWindow(QMainWindow):
 
         from synclassic.gui.widgets import control_pixmap
 
-        self.repeat_button.setIcon(QIcon(control_pixmap("repeat_one" if mode == "one" else "repeat")))
+        self._repeat_icon = "repeat_one" if mode == "one" else "repeat"
+        self.repeat_button.setIcon(QIcon(control_pixmap(self._repeat_icon, color=theme.c("icon"))))
         self.repeat_button.setToolTip(label)
 
     def _playing_changed(self, playing: bool) -> None:
@@ -1439,6 +1429,21 @@ class MainWindow(QMainWindow):
             self.say(f"Spotify: {error} (the On-The-Go playlists wait for next time)")
 
         run_in_background(self, lambda task: otg_spotify.send(), lambda result: self.say(result.describe()), failed)
+
+    def theme_changed(self) -> None:
+        """The appearance changed (or was first set): redraw the icons that are pictures."""
+        from PySide6.QtGui import QIcon
+
+        from synclassic.gui.widgets import control_pixmap
+
+        colour = theme.c("icon")
+        quiet, loud = self._speakers
+        quiet.setPixmap(speaker_pixmap(0, 12, colour))
+        loud.setPixmap(speaker_pixmap(2, 12, colour))
+        self.shuffle_button.setIcon(QIcon(control_pixmap("shuffle", color=colour)))
+        self.repeat_button.setIcon(QIcon(control_pixmap(getattr(self, "_repeat_icon", "repeat"), color=colour)))
+        if self.ipod is not None:
+            self._show_ipod_choices()
 
     def _focused_ipod_table(self):
         focus = QApplication.focusWidget()
@@ -2325,7 +2330,7 @@ class MainWindow(QMainWindow):
         if self.ipod is not None:
             try:
                 self.ipod_choice_label.setText("Syncing: " + prefs.describe(self.library, self.ipod))
-            except OSError:
+            except (OSError, sqlite3.Error):  # the iPod just went, or the window is closing
                 self.ipod_choice_label.setText("")
 
     def _show_ipod(self) -> None:
@@ -2394,8 +2399,8 @@ class MainWindow(QMainWindow):
 
         def show(result):
             report, last_sync, backups = result
-            yes = "<span style='color:#2e8b2e'>✓</span>"
-            no = "<span style='color:#c63a3a'>✗</span>"
+            yes = f"<span style='color:{theme.c('good')}'>✓</span>"
+            no = f"<span style='color:{theme.c('bad')}'>✗</span>"
             rows = [
                 ("Serial number", ipod.sysinfo.get("pszSerialNumber", "unknown")),
                 ("Database", f"{report.database_size / 1024:,.0f} KB · sections {', '.join(map(str, report.sections))} · "
@@ -2410,14 +2415,16 @@ class MainWindow(QMainWindow):
                 ("Backups", f"{backups} (Backups… to restore one)"),
                 ("Safe to manage", yes if report.safe_to_manage else f"{no} " + "; ".join(report.problems)),
             ]
-            cells = "".join(f"<tr><td style='color:#6b6b6b; padding:1px 10px 1px 0'>{k}</td><td>{v}</td></tr>" for k, v in rows)
+            cells = "".join(f"<tr><td style='color:{theme.c('dim')}; padding:1px 10px 1px 0'>{k}</td><td>{v}</td></tr>"
+                            for k, v in rows)
             self.ipod_tech.setText(f"<table>{cells}</table>")
 
         run_in_background(self, work, show, lambda error: self.ipod_tech.setText(f"Couldn't check: {error}"))
 
     def _render_ipod_details(self, rows) -> None:
         cells = "".join(
-            f"<tr><td align='right' style='color:#6b6b6b; padding:2px 10px 2px 0'>{k}:</td><td style='padding:2px 0'>{v}</td></tr>"
+            f"<tr><td align='right' style='color:{theme.c('dim')}; padding:2px 10px 2px 0'>{k}:</td>"
+            f"<td style='padding:2px 0'>{v}</td></tr>"
             for k, v in rows
         )
         self.ipod_details.setText(f"<table>{cells}</table>")

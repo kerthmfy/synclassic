@@ -20,6 +20,16 @@ def main() -> int:
     app.setApplicationName("Synclassic")
     app.setOrganizationName("Synclassic")
     theme.apply(app)
+    hints = app.styleHints()
+    if hasattr(hints, "colorSchemeChanged"):  # "Automatic" follows macOS switching to dark and back
+
+        def follow(*_):
+            from synclassic.config import load_settings
+
+            if load_settings().appearance == "auto":
+                theme.apply(app, "auto")
+
+        hints.colorSchemeChanged.connect(follow)
     from synclassic.gui.icon import app_icon
 
     app.setWindowIcon(app_icon())

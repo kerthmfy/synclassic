@@ -120,7 +120,8 @@ class FindMusicPage(QWidget):
         self.status = QLabel("Search the music catalogue, then Get a song or a whole album. It downloads like your "
                              "playlists' songs and goes on your iPod at the next sync.")
         self.status.setWordWrap(True)
-        self.status.setStyleSheet("color: #555; padding: 4px 2px;")
+        self.status.setProperty("role", "dim")
+        self.status.setStyleSheet("padding: 4px 2px;")
         layout.addWidget(self.status)
 
         self.stack = QStackedWidget()
@@ -171,7 +172,7 @@ class FindMusicPage(QWidget):
         self.album_title.setFont(font)
         self.album_title.setWordWrap(True)
         self.album_info = QLabel()
-        self.album_info.setStyleSheet("color: #555;")
+        self.album_info.setProperty("role", "dim")
         info.addWidget(self.album_title)
         info.addWidget(self.album_info)
         buttons = QHBoxLayout()

@@ -28,7 +28,7 @@ class StatsPage(QWidget):
         super().__init__(parent)
         self.ipod_songs = None  # browse.Song values of the connected iPod, if any
         self.period = "month"
-        self.setStyleSheet("StatsPage { background: #ffffff; }")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)  # background from the theme
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 10, 14, 10)
         row = QHBoxLayout()
@@ -47,7 +47,7 @@ class StatsPage(QWidget):
         row.addWidget(rewind)
         layout.addLayout(row)
         self.summary = QLabel("")
-        self.summary.setStyleSheet("font-size: 13px; color: #333; padding: 6px 2px;")
+        self.summary.setStyleSheet("font-size: 13px; padding: 6px 2px;")
         layout.addWidget(self.summary)
         grid = QGridLayout()
         grid.setSpacing(12)
