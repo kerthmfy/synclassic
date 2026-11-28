@@ -181,6 +181,8 @@ class EditSession:
         extension = path.suffix.lower()
         if extension not in SUPPORTED:
             raise ManageError(f"The iPod can't play {extension} files.")
+        if not self.ipod.fits_file(path.stat().st_size):
+            raise ManageError(f"{path.name} is 4 GB or bigger, more than a Windows-formatted (FAT32) iPod can hold.")
         target = _new_ipod_path(self.ipod, extension, _music_folders(self.ipod))
         tmp = target.with_name(target.name + ".part")
         shutil.copyfile(path, tmp)

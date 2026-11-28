@@ -98,7 +98,7 @@ def check(ipod: IPod) -> CheckReport:
     music = ipod.control / "Music"
     if music.is_dir():
         for file in music.rglob("*"):
-            if file.suffix.lower() in AUDIO_EXTENSIONS and file.is_file():
+            if file.suffix.lower() in AUDIO_EXTENSIONS and file.is_file() and not file.name.startswith("._"):
                 relative = file.relative_to(ipod.root).as_posix().lower()
                 if relative not in listed:
                     report.unlisted_files += 1
@@ -194,6 +194,10 @@ def format_report(report: CheckReport) -> list[str]:
         lines.append("  ⚠ Synclassic is built for the iPod 5G/5.5G (Video) and the iPod classic; this model is untested.")
     if report.signature:
         lines.append(f"  Database: {report.signature}")
+    if ipod.filesystem:
+        from synclassic.ipod.device import FORMAT_NAMES
+
+        lines.append(f"  Format:   {FORMAT_NAMES.get(ipod.filesystem, ipod.filesystem)}")
     if report.database_size:
         kinds = [f"{report.songs} songs"]
         if report.videos:

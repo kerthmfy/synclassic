@@ -77,9 +77,58 @@ class IPod:
             return raw.split("(", 1)[1].split(")", 1)[0].strip()
         return raw.strip()
 
+    @property
+    def filesystem(self) -> str:
+        """"hfs" (Mac format), "msdos" (Windows / FAT32), "exfat", or "" if unknown."""
+        if not hasattr(self, "_filesystem"):
+            self._filesystem = detect_filesystem(self.root)
+        return self._filesystem
+
+    @property
+    def is_fat(self) -> bool:
+        return self.filesystem in ("msdos", "fat32", "vfat", "fat")
+
+    def fits_file(self, size: int) -> bool:
+        """FAT32 can't hold a file of 4 GB or more."""
+        return size < FAT_LIMIT or not self.is_fat
+
     def disk_usage(self) -> tuple[int, int]:
         usage = shutil.disk_usage(self.root)
         return usage.total, usage.free
+
+
+FAT_LIMIT = 4 * 1024**3  # FAT32's largest file is one byte less than this
+FORMAT_NAMES = {"hfs": "Mac (HFS+)", "apfs": "Mac (APFS)", "msdos": "Windows (FAT32)", "vfat": "Windows (FAT32)",
+                "exfat": "exFAT"}
+
+
+def detect_filesystem(root: pathlib.Path, run=None) -> str:
+    """The iPod's disk format, asked from the system (diskutil on a Mac, /proc/mounts on Linux)."""
+    import subprocess
+
+    try:
+        if sys.platform == "darwin" or run is not None:
+            import plistlib
+
+            result = (run or subprocess.run)(["diskutil", "info", "-plist", str(root)], capture_output=True, timeout=20)
+            info = plistlib.loads(result.stdout)
+            return str(info.get("FilesystemType") or info.get("FilesystemName") or "").lower()
+        mounts = pathlib.Path("/proc/mounts")
+        if mounts.is_file():
+            best = ("", "")
+            for line in mounts.read_text().splitlines():
+                parts = line.split()
+                if len(parts) > 2 and str(root).startswith(parts[1]) and len(parts[1]) > len(best[0]):
+                    best = (parts[1], parts[2])
+            return best[1].lower()
+    except Exception:
+        pass
+    return ""
+
+
+def is_dot_underscore(path: pathlib.Path) -> bool:
+    """macOS's "._name" companion files on Windows-formatted disks: not music."""
+    return path.name.startswith("._")
 
 
 def read_sysinfo(root: pathlib.Path) -> dict[str, str]:

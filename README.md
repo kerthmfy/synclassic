@@ -194,7 +194,9 @@ and 7th generation) with Apple's firmware. The iPod classic only accepts a datab
 its own FireWire ID (a 16-digit hardware number); Synclassic finds it on the iPod or in your
 Mac's USB information, checks it against the iPod's current signature, and signs every change.
 If it can't find it, `synclassic ipod` says how to add it. (The iPod nano 3G/4G uses the same
-signature and should work too, but is untested; the nano 5G and later aren't supported.)
+signature and should work too, but is untested; the nano 5G and later aren't supported.) iPods
+formatted for Windows (FAT32), which many modded iPods are, work the same way: Synclassic
+ignores the "._" files macOS leaves on them and skips files of 4 GB or more, which FAT32 can't hold.
 
 **1. Check it** (read-only, nothing is changed):
 

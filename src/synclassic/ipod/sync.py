@@ -25,6 +25,7 @@ import json
 import os
 import pathlib
 import random
+import re
 import shutil
 import string
 from collections.abc import Callable
@@ -268,6 +269,10 @@ def make_plan(library: Library, ipod: IPod, db: itunesdb.Chunk | None = None) ->
             plan.skipped.append((item, f"the iPod can't play {path.suffix} files"))
             plan.not_ready.add(key)
             continue
+        if not ipod.fits_file(path.stat().st_size):
+            plan.skipped.append((item, "it's 4 GB or bigger, more than a Windows-formatted (FAT32) iPod can hold"))
+            plan.not_ready.add(key)
+            continue
         plan.copy.append(item)
         plan.bytes_to_copy += path.stat().st_size
 
@@ -440,7 +445,9 @@ def _write_atomically(path: pathlib.Path, data: bytes) -> None:
 
 def _music_folders(ipod: IPod) -> list[pathlib.Path]:
     music = ipod.control / "Music"
-    folders = sorted(p for p in music.glob("F[0-9][0-9]") if p.is_dir())
+    # "F00".."F49" (Windows-formatted iPods may have them in lowercase).
+    folders = sorted(p for p in music.iterdir() if p.is_dir() and re.fullmatch(r"[Ff]\d\d", p.name)) \
+        if music.is_dir() else []
     if not folders:
         folders = [music / f"F{n:02d}" for n in range(20)]
         for folder in folders:
