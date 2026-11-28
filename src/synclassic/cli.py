@@ -672,7 +672,29 @@ def cmd_ipod(args) -> int:
         say("Not syncing: the check above has to pass first. Nothing was changed.")
         return 2
     library = open_library()
+    if args.replace:
+        from synclassic.ipod import prefs
+
+        keys = []
+        for name in args.replace:
+            found = library.playlist_by_name(name)
+            if found is None:
+                say(f"There's no playlist “{name}” in Synclassic.")
+                return 1
+            keys.append(ipod_sync.playlist_key(found))
+        if not args.dry_run:
+            prefs.update(ipod, replace=sorted(set(prefs.load(ipod).replace) | set(keys)))
+        else:
+            current = prefs.load(ipod)
+            current.replace = sorted(set(current.replace) | set(keys))
+            prefs.save(ipod, current)  # for the preview; taken back below
     plan = ipod_sync.make_plan(library, ipod)
+    if args.replace and args.dry_run:
+        from synclassic.ipod import prefs
+
+        current = prefs.load(ipod)
+        current.replace = [k for k in current.replace if k not in keys]
+        prefs.save(ipod, current)
     for line in plan.summary():
         say(line)
     if args.dry_run or not plan.has_changes or not plan.fits:
@@ -1077,6 +1099,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--path", help="the iPod's folder, if it isn't found automatically")
     p.add_argument("--ipod", help="which iPod, by name, when more than one is connected")
     p.add_argument("--dry-run", action="store_true", help="sync: only show what would change")
+    p.add_argument("--replace", action="append", default=[], metavar="PLAYLIST",
+                   help="sync: make the iPod's playlist of this name exactly Synclassic's version, even if it "
+                        "waits otherwise (songs taken out of it stay on the iPod); can be given more than once")
     p.add_argument("--yes", action="store_true", help="don't ask for confirmation")
     p.add_argument("--eject", action="store_true", help="sync: eject the iPod afterwards")
     p.add_argument("--all", action="store_true", help="art: also check covers that can't be measured")

@@ -2728,9 +2728,22 @@ class MainWindow(QMainWindow):
             act.setCheckable(True)
             act.setChecked(current == value)
             save_actions[act] = value
+        replace = menu.addAction("Replace on iPod at Next Sync")
+        replace.setToolTip("Make the iPod's playlist of this name exactly Synclassic's version, even if songs "
+                           "aren't all ready or some would be taken out of it (they stay on the iPod)")
+        replace.setEnabled(self.ipod is not None)
         menu.addSeparator()
         remove = menu.addAction("Remove playlist…")
         chosen = menu.exec(self.sidebar.viewport().mapToGlobal(position))
+        if chosen == replace and self.ipod is not None:
+            from synclassic.ipod import prefs
+            from synclassic.ipod.sync import playlist_key
+
+            asked = prefs.load(self.ipod).replace
+            prefs.update(self.ipod, replace=sorted(set(asked) | {playlist_key(playlist)}))
+            self.say(f"“{playlist.name}” is replaced on {self.ipod.name} at the next sync.")
+            self.sync_ipod()
+            return
         if chosen in save_actions:
             self.library.set_destination(playlist, save_actions[chosen])
             where = destinations.CHOICES[destinations.of_playlist(playlist)]

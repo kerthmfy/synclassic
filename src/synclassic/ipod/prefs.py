@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 
 FOLDER = ".synclassic"
 BITRATES = (0, 256, 192, 128)  # 0 = songs as they are
@@ -23,6 +23,7 @@ class IPodPrefs:
     playlists: list[str] | None = None  # None = every playlist; else the chosen playlist keys
     bitrate: int = 0  # kbps for AAC copies, 0 = copy songs as they are
     mode: str = ""  # "apple" or "rockbox" (only asked for on iPods with both)
+    replace: list[str] = field(default_factory=list)  # playlist keys to replace on the iPod at the next sync, no matter what
 
     @property
     def all_playlists(self) -> bool:
@@ -45,6 +46,8 @@ def load(ipod) -> IPodPrefs:
     bitrate = data.get("bitrate", 0)
     prefs.bitrate = bitrate if bitrate in BITRATES else 0
     prefs.mode = str(data.get("mode") or "")
+    replace = data.get("replace")
+    prefs.replace = [str(k) for k in replace] if isinstance(replace, list) else []
     return prefs
 
 

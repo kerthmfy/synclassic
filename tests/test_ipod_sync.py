@@ -340,7 +340,54 @@ def test_a_waiting_playlist_is_always_said(tmp_path, ipod):
     plan = sync.make_plan(library, ipod)
     assert [p.library.name for p in plan.waiting] == ["old mix"]  # it would drop the iPod's 3 songs
     reason = plan.waiting[0].wait_reason()
-    assert "would remove 3 of its songs" in reason and "1 not found" in reason
+    assert "would have only 1 song (1 not found" in reason and "3 songs now in it aren't" in reason
+    assert "Replace on iPod at Next Sync" in reason
+    assert "Everything else is already in sync" in "\n".join(plan.summary()) or plan.has_changes
     messages = []
     sync.apply_plan(library, plan, messages.append)
     assert any(m.startswith("⏸ “old mix” was left as it is") for m in messages)
+
+
+def test_a_bigger_version_replaces_the_ipods_playlist_even_if_some_songs_leave_it(tmp_path, ipod):
+    """The 'yeah' numbers: the iPod's version has songs Spotify's doesn't (14 of 187), and one song
+    wasn't found, but Synclassic's version is bigger (about 295): it's replaced (with a confirmation,
+    as every take-over). Songs taken out of the playlist stay on the iPod."""
+    on_ipod = itunesdb.songs(read_db(ipod))
+    library = Library(config.app_dir() / "library.db")
+    playlist = library.add_playlist("Old Mix", SourceSpec("spotify", "https://open.spotify.com/playlist/" + "4" * 22))
+    # Spotify's version: 2 of the iPod's 3 (one was removed on Spotify), 5 other songs on the iPod, one not found.
+    keep = [on_ipod[0], on_ipod[2]] + on_ipod[10:15]
+    tracks = [Track(s.title, [s.artist], duration_ms=s.length_ms, spotify_id=f"{n:021d}k") for n, s in enumerate(keep)]
+    tracks.append(Track("Verse", ["Ilan Stone"], spotify_id="v" * 22))
+    apply_source(library, playlist, SourcePlaylist("Old Mix", tracks))
+    library.update_track(library.playlist_tracks(playlist)[-1].id, status="unmatched")
+    plan = sync.make_plan(library, ipod)
+    planned = plan.playlists[0]
+    assert planned.action == "take over" and planned.would_lose == 1 and len(planned.items) == 7
+    sync.apply_plan(library, plan, lambda s: None)
+    assert playlist_titles(read_db(ipod), "Old Mix") == [s.title for s in keep]
+    assert on_ipod[1].dbid in {s.dbid for s in itunesdb.songs(read_db(ipod))}  # out of the playlist, still on the iPod
+
+
+def test_replace_anyway_when_you_say_so(tmp_path, ipod, capsys, monkeypatch):
+    from synclassic import cli
+    from synclassic.ipod import prefs
+
+    library = Library(config.app_dir() / "library.db")
+    playlist = library.add_playlist("Old Mix", SourceSpec("spotify", "https://open.spotify.com/playlist/" + "3" * 22))
+    apply_source(library, playlist, SourcePlaylist("Old Mix", [song(1), Track("Lost", ["Nobody"], spotify_id="l" * 22)]))
+    first, lost = library.playlist_tracks(playlist)
+    make_audio(tmp_path / "a.m4a", seconds=2)
+    library.update_track(first.id, status="downloaded", file_path=str(tmp_path / "a.m4a"))
+    library.update_track(lost.id, status="unmatched")
+    assert sync.make_plan(library, ipod).waiting  # smaller and incomplete: waits
+
+    monkeypatch.setattr(cli, "open_library", lambda: library)
+    monkeypatch.setenv("SYNCLASSIC_IPOD", str(ipod.root))
+    assert cli.main(["ipod", "sync", "--dry-run", "--replace", "Old Mix"]) == 0
+    assert "Take over iPod playlist “Old Mix”" in capsys.readouterr().out
+    assert prefs.load(ipod).replace == []  # a preview changes nothing
+    assert cli.main(["ipod", "sync", "--yes", "--replace", "old mix"]) == 0
+    assert playlist_titles(read_db(ipod), "Old Mix") == ["New Song 1"]
+    assert prefs.load(ipod).replace == []  # done: Synclassic owns it now, so the request is cleared
+    assert cli.main(["ipod", "sync", "--dry-run", "--replace", "Nope"]) == 1
