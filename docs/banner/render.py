@@ -23,7 +23,17 @@ import sys
 import tempfile
 
 HERE = pathlib.Path(__file__).resolve().parent
-WIDTH, HEIGHT = 1280, 640  # CSS pixels; the PDF page is the same size in points x 0.75
+WIDTH, HEIGHT = 1280, 640  # CSS pixels (read from the page's "banner-size"); PDF points = x 0.75
+
+
+def use_page_size(source: pathlib.Path) -> None:
+    """The banner's size, from <meta name="banner-size" content="900x600"> in the page."""
+    import re
+
+    global WIDTH, HEIGHT
+    found = re.search(r'name="banner-size"\s+content="(\d+)x(\d+)"', source.read_text(encoding="utf-8"))
+    if found:
+        WIDTH, HEIGHT = int(found.group(1)), int(found.group(2))
 
 MAC_BROWSERS = [
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -75,6 +85,7 @@ def render_with_browser(source: pathlib.Path, out: pathlib.Path, scale: float, b
                    "--no-default-browser-check", "--allow-file-access-from-files",
                    f"--user-data-dir={pathlib.Path(tmp) / 'profile'}",  # never touches your own browser profile
                    f"--window-size={WIDTH},{HEIGHT}", f"--force-device-scale-factor={scale:g}",
+                   "--default-background-color=00000000",  # a transparent page stays transparent
                    "--virtual-time-budget=4000",  # time for fonts, images and the background script
                    f"--screenshot={shot}", source.as_uri()]
         if hasattr(os, "geteuid") and os.geteuid() == 0:
@@ -102,6 +113,9 @@ def render_with_qt(source: pathlib.Path, out: pathlib.Path, scale: float = 2.0) 
 
     app = QApplication.instance() or QApplication(sys.argv[:1])
     page = QWebEnginePage()
+    from PySide6.QtCore import Qt
+
+    page.setBackgroundColor(Qt.GlobalColor.transparent)
     page.settings().setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
     result: dict = {}
 
@@ -157,6 +171,7 @@ def render_with_qt(source: pathlib.Path, out: pathlib.Path, scale: float = 2.0) 
 
 def render(source: pathlib.Path, out: pathlib.Path, scale: float = 2.0, method: str = "auto") -> tuple[pathlib.Path, str]:
     """Returns (picture, how it was made)."""
+    use_page_size(source)
     problems = []
     if method in ("auto", "browser"):
         browser = find_browser()

@@ -1,90 +1,45 @@
 <!doctype html>
 <!--
-  The README banner (docs/banner.png).
+  The README banner (docs/banner.png): the app window with the iPod in front, on a transparent
+  background.
 
   Edit this file, preview it by opening it in a browser, then make the PNG:
 
       python docs/banner/render.py
 
-  The banner is 1280 x 640 (saved at 2x, 2560 x 1280). Text is in the BODY below; colours,
-  sizes and positions are the variables right under <style>. Images sit next to this file:
-  icon.png, window.png (a screenshot of the app) and ipod.png. Swap them for new ones with the
-  same names, or point the src attributes elsewhere.
+  The banner's size is in the "banner-size" line below (saved at 2x). Positions and sizes are the
+  variables right under <style>. The images sit next to this file: window.png (a screenshot of
+  the app) and ipod.png. Swap them for new ones with the same names.
 -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="banner-size" content="840x560">
 <title>Synclassic banner</title>
 <style>
 :root {
   /* --- easy to change ------------------------------------------------------------------ */
-  --title-size: 62px;
-  --tagline-size: 27px;
-  --text-size: 16px;
-  --ink: #1f2b3b;               /* tagline */
-  --muted: #4b5868;             /* small text */
-  --accent-top: #5fa6f5;        /* the blue words, top to bottom */
-  --accent-bottom: #1f6fd6;
-  --sky-top: #f4f7fb;           /* background, top to bottom */
-  --sky-middle: #dfe7f1;
-  --sky-bottom: #cfd9e6;
-  --glow: rgba(120, 170, 235, .38); /* the blue light behind the window */
-
-  --window-left: 556px;  --window-top: 74px;  --window-width: 690px;
-  --ipod-left: 484px;    --ipod-top: 282px;   --ipod-width: 176px;  --ipod-tilt: -7deg;
-  --text-left: 72px;     --text-top: 92px;    --text-width: 430px;
+  --width: 840px;  --height: 560px;   /* keep in step with "banner-size" above */
+  --window-left: 110px;  --window-top: 20px;   --window-width: 690px;
+  --ipod-left: 38px;     --ipod-top: 228px;    --ipod-width: 176px;  --ipod-tilt: -7deg;
 }
 
-/* --- fonts (Inter, bundled in ./fonts, OFL licence) ---------------------------------- */
-@font-face { font-family: "Banner"; font-weight: 400; src: url("fonts/Inter-Regular.woff2") format("woff2"); }
 @font-face { font-family: "Banner"; font-weight: 600; src: url("fonts/Inter-SemiBold.woff2") format("woff2"); }
-@font-face { font-family: "Banner"; font-weight: 700; src: url("fonts/Inter-Bold.woff2") format("woff2"); }
-@font-face { font-family: "Banner Display"; font-weight: 800; src: url("fonts/InterDisplay-ExtraBold.woff2") format("woff2"); }
 
-/* For the PDF route of render.py: one page, exactly the banner, colours as on screen. */
-@page { size: 1280px 640px; margin: 0; }
+/* For the PDF route of render.py: one page, exactly the banner. */
+@page { size: 840px 560px; margin: 0; }
 html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { width: 1280px; height: 640px; overflow: hidden; }
-body {
-  position: relative;
-  font-family: "Banner", -apple-system, "Helvetica Neue", sans-serif;
-  -webkit-font-smoothing: antialiased;
-}
-/* The background is drawn by the script at the bottom (from the colours above), so it looks
-   the same in the PNG whichever way render.py captures the page. */
-.sky { position: absolute; inset: 0; width: 1280px; height: 640px;
-       background: linear-gradient(180deg, var(--sky-top), var(--sky-bottom)); }
+html, body { width: var(--width); height: var(--height); overflow: hidden; background: transparent; }
+body { position: relative; font-family: "Banner", -apple-system, "Helvetica Neue", sans-serif;
+       -webkit-font-smoothing: antialiased; }
 
-/* Left: icon, name, tagline, chips. */
-.left { position: absolute; left: var(--text-left); top: var(--text-top); width: var(--text-width); }
-.brand { display: flex; align-items: center; gap: 18px; }
-.brand img { width: 112px; height: 112px; margin-left: -12px; filter: drop-shadow(0 8px 14px rgba(30, 50, 90, .18)); }
-h1 {
-  font-family: "Banner Display", "Banner", sans-serif; font-weight: 800;
-  font-size: var(--title-size); letter-spacing: -1.6px;
-  background: linear-gradient(180deg, #2c3a4f, #0f1722);
-  -webkit-background-clip: text; background-clip: text; color: transparent;
-}
-.tagline { margin-top: 26px; font-size: var(--tagline-size); line-height: 1.25; font-weight: 600;
-           color: var(--ink); letter-spacing: -.4px; }
-.tagline b { font-weight: 700; background: linear-gradient(180deg, var(--accent-top), var(--accent-bottom));
-             -webkit-background-clip: text; background-clip: text; color: transparent; }
-.text { margin-top: 14px; font-size: var(--text-size); line-height: 1.55; color: var(--muted); max-width: 410px; }
-.chips { margin-top: 26px; display: flex; flex-wrap: wrap; gap: 8px; max-width: 420px; }
-.chip {
-  font-size: 13px; font-weight: 600; color: #26405f; padding: 6px 12px; border-radius: 999px;
-  background: linear-gradient(180deg, #ffffff 0%, #eaf1f9 55%, #dbe6f3 100%);
-  border: 1px solid #a9bdd4;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, .9) inset, 0 1px 2px rgba(30, 60, 100, .12);
-}
-
-/* Right: the app window, with a macOS title bar. */
+/* The app window, with a macOS title bar. */
 .window {
   position: absolute; left: var(--window-left); top: var(--window-top); width: var(--window-width);
   border-radius: 11px; overflow: hidden; background: #e3e3e3;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, .22), 0 28px 60px rgba(25, 45, 80, .35), 0 8px 18px rgba(25, 45, 80, .18);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .22), 0 24px 50px rgba(25, 45, 80, .30), 0 6px 14px rgba(25, 45, 80, .16);
 }
 .titlebar { position: relative; height: 21px; display: flex; align-items: center;
             background: linear-gradient(180deg, #ececec, #e3e3e3); }
@@ -100,36 +55,11 @@ h1 {
 .ipod {
   position: absolute; left: var(--ipod-left); top: var(--ipod-top); width: var(--ipod-width);
   transform: rotate(var(--ipod-tilt));
-  filter: drop-shadow(0 22px 22px rgba(10, 20, 40, .38)) drop-shadow(0 4px 6px rgba(10, 20, 40, .25));
+  filter: drop-shadow(0 18px 18px rgba(10, 20, 40, .34)) drop-shadow(0 4px 6px rgba(10, 20, 40, .22));
 }
 </style>
 </head>
 <body>
-<canvas class="sky" width="2560" height="1280"></canvas>
-
-<div class="left">
-  <div class="brand">
-    <img src="icon.png" alt="">
-    <h1>Synclassic</h1>
-  </div>
-
-  <!-- The tagline: words inside <b> are blue. <br> breaks the line. -->
-  <div class="tagline">Your Spotify playlists,<br>on your <b>iPod classic</b>.</div>
-
-  <div class="text">
-    Downloads every song in Spotify order with sharp album art, then syncs it to your iPod — the way iTunes used to.
-  </div>
-
-  <!-- One <span class="chip"> per feature. Add, remove or reword freely. -->
-  <div class="chips">
-    <span class="chip">Spotify · links · m3u8 · CSV</span>
-    <span class="chip">M4A / MP3</span>
-    <span class="chip">Album art</span>
-    <span class="chip">Playlists in order</span>
-    <span class="chip">Podcasts</span>
-    <span class="chip">Last.fm scrobbling</span>
-  </div>
-</div>
 
 <div class="window">
   <div class="titlebar"><div class="lights"><i></i><i></i><i></i></div><span>Synclassic</span></div>
@@ -138,42 +68,5 @@ h1 {
 
 <img class="ipod" src="ipod.png" alt="">
 
-<script>
-// The background: a soft sky gradient, fine Aqua pinstripes, a white light in the top left and
-// a blue glow behind the window. Colours come from the variables at the top of the page.
-(function () {
-  const canvas = document.querySelector("canvas.sky");
-  const ctx = canvas.getContext("2d");
-  const css = getComputedStyle(document.documentElement);
-  const v = (name) => css.getPropertyValue(name).trim();
-  const W = 1280, H = 640;
-  ctx.scale(canvas.width / W, canvas.height / H);
-
-  const sky = ctx.createLinearGradient(0, 0, 0, H);
-  sky.addColorStop(0, v("--sky-top"));
-  sky.addColorStop(0.6, v("--sky-middle"));
-  sky.addColorStop(1, v("--sky-bottom"));
-  ctx.fillStyle = sky;
-  ctx.fillRect(0, 0, W, H);
-
-  ctx.fillStyle = "rgba(255, 255, 255, .22)";            // pinstripes: 1 px every 3 px
-  for (let y = H - 1; y >= 0; y -= 3) ctx.fillRect(0, y, W, 1);
-
-  function light(cx, cy, rx, ry, color, clear) {        // an elliptical light fading out at 70 %
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.scale(1, ry / rx);
-    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
-    g.addColorStop(0, color);
-    g.addColorStop(0.7, clear);
-    g.addColorStop(1, clear);
-    ctx.fillStyle = g;
-    ctx.fillRect(-rx, -rx, rx * 2, rx * 2);
-    ctx.restore();
-  }
-  light(W * 0.08, 0, 600, 400, "rgba(255, 255, 255, .9)", "rgba(255, 255, 255, 0)");
-  light(W * 0.82, H * 0.42, 900, 520, v("--glow"), "rgba(120, 170, 235, 0)");
-})();
-</script>
 </body>
 </html>
