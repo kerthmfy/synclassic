@@ -257,6 +257,9 @@ class MainWindow(QMainWindow):
         updates = QAction("Check for Updates…", self)
         updates.triggered.connect(lambda: self.check_for_updates(quiet=False))
         help_menu.addAction(updates)
+        report = QAction("Report a Problem…", self)
+        report.triggered.connect(self.report_problem)
+        help_menu.addAction(report)
         about = QAction("About Synclassic", self)
         about.triggered.connect(lambda: QMessageBox.about(
             self, "About Synclassic", f"<b>Synclassic {__version__}</b><br>Your Spotify playlists on your iPod."))
@@ -3119,8 +3122,21 @@ class MainWindow(QMainWindow):
         self._set_idle(summary)
 
     def _job_failed(self, error: str) -> None:
+        """A task stopped with an error: say it in plain words, with a way to report it."""
         self.say(f"Error: {error}")
         self._set_idle(f"Something went wrong: {error}")
+        box = QMessageBox(QMessageBox.Icon.Warning, "Something went wrong", error, parent=self)
+        box.setInformativeText("If this keeps happening, Report a Problem gathers the details (without passwords "
+                               "or keys) so someone can help.")
+        report = box.addButton("Report a Problem…", QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Ok)
+        box.finished.connect(lambda *_: box.clickedButton() is report and self.report_problem())
+        box.open()  # doesn't block: the window stays usable
+
+    def report_problem(self) -> None:
+        from synclassic.gui.report_dialog import ReportDialog
+
+        ReportDialog(self.log.toPlainText(), self).exec()
 
     def say(self, text: str) -> None:
         self.log.appendPlainText(text)

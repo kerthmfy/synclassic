@@ -473,6 +473,14 @@ mode the audio is copied without re-encoding whenever possible.
 `rename`, `remove` (files are kept), `clean` (delete songs no playlist uses), `logout`,
 `spotify-playlists`. Run `synclassic --help` for everything.
 
+## Something not working?
+
+Help → **Report a Problem…** gathers what someone would need to help: versions, settings, the
+iPod's model and check result, the last error and the end of the activity log, with passwords,
+keys, tokens, e-mail addresses and your user name taken out. You read it first, then copy it,
+save it, or open a GitHub issue with it; nothing is sent by itself. Terminal:
+`synclassic report --out ~/Desktop/synclassic-report.txt`.
+
 ## Notes
 
 - Downloading from YouTube is against YouTube's Terms of Service. Use Synclassic for your own

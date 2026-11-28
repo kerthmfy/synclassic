@@ -1013,6 +1013,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--force", action="store_true", help="eject: even while macOS's device agent holds the iPod")
     p.set_defaults(func=cmd_ipod)
 
+    p = sub.add_parser("report", help="details for reporting a problem (no passwords or keys); --out to save")
+    p.add_argument("words", nargs="*", help="what happened (optional)")
+    p.add_argument("--out", help="save to this file instead of showing it")
+    p.set_defaults(func=cmd_report)
+
     p = sub.add_parser("gui", help="open the Synclassic app window")
     p.set_defaults(func=lambda args: __import__("synclassic.gui.app", fromlist=["main"]).main())
 
@@ -1058,6 +1063,20 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def cmd_report(args) -> int:
+    from synclassic import diagnostics
+
+    text = diagnostics.collect(" ".join(args.words))
+    if args.out:
+        path = pathlib.Path(args.out).expanduser()
+        path.write_text(text, encoding="utf-8")
+        say(f"Saved the report to {path} (passwords, keys and e-mail addresses are taken out; read it before "
+            "sharing). New issue: https://github.com/kerthmfy/synclassic/issues/new")
+    else:
+        say(text)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     from synclassic import tools
 
@@ -1072,6 +1091,17 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         say("\nStopped. Run the same command again to continue where you left off.")
         return 130
+    except Exception as error:
+        import os
+
+        if os.environ.get("SYNCLASSIC_DEBUG"):
+            raise
+        from synclassic import errors
+
+        say(f"Something went wrong: {errors.remember(error)}")
+        say("To report it: synclassic report --out ~/Desktop/synclassic-report.txt "
+            "(the details of this error are included; SYNCLASSIC_DEBUG=1 shows them here)")
+        return 1
 
 
 if __name__ == "__main__":

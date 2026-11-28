@@ -50,7 +50,9 @@ class Worker(QThread):
             result = self.function(self.task)
         except Exception as error:  # report anything to the user instead of crashing
             traceback.print_exc()
-            self.failed.emit(str(error) or error.__class__.__name__)
+            from synclassic import errors
+
+            self.failed.emit(errors.remember(error))  # in plain words; kept for Report a Problem
         else:
             self.done.emit(result)
 

@@ -175,7 +175,9 @@ def process_track(
     try:
         result = matcher.match(item.track)
     except Exception as error:  # network trouble, YouTube changes...
-        message = str(error)
+        from synclassic import errors
+
+        message = errors.friendly(error)
         if isinstance(error, ValueError) and "Expecting value" in message:
             message = "YouTube Music sent back an empty answer (it may be blocking or rate-limiting this network)"
         library.update_track(item.id, status="failed", error=f"Search failed: {message}")
