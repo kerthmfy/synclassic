@@ -290,3 +290,57 @@ def test_jump_tables_keep_the_ipods_letters_for_existing_songs(ipod):
     assert "Q" in letters and sum(g[3] for g in groups if chr(g[0]) == "Q") == len(order)  # kept
     assert sum(g[3] for g in groups) == len(order) + 1
     assert "A" in letters  # the new song got its own letter
+
+
+def test_not_found_song_doesnt_block_taking_over_a_playlist_when_nothing_is_lost(tmp_path, ipod):
+    """The 'yeah' case: the iPod's own playlist has songs that are all in the Spotify playlist,
+    one Spotify song was never found on YouTube. Waiting would last forever; nothing would be
+    lost, so the playlist is taken over now, and the missing song joins once it's found."""
+    on_ipod = itunesdb.songs(read_db(ipod))[:3]  # "Old Mix" on the iPod has these 3
+    library = Library(config.app_dir() / "library.db")
+    playlist = library.add_playlist("Old Mix", SourceSpec("spotify", "https://open.spotify.com/playlist/" + "7" * 22))
+    spotify_order = [Track(s.title, [s.artist], duration_ms=s.length_ms, spotify_id=f"{n:022d}a"[-22:])
+                     for n, s in enumerate(on_ipod)]
+    spotify_order.insert(1, song(1))
+    spotify_order.append(Track("Verse", ["Ilan Stone"], spotify_id="v" * 22))
+    apply_source(library, playlist, SourcePlaylist("Old Mix", spotify_order))
+    items = library.playlist_tracks(playlist)
+    path = tmp_path / "new.m4a"
+    make_audio(path, seconds=2)
+    library.update_track(items[1].id, status="downloaded", file_path=str(path))
+    library.update_track(items[-1].id, status="unmatched")  # "Not found"
+
+    plan = sync.make_plan(library, ipod)
+    planned = plan.playlists[0]
+    assert planned.action == "take over" and planned.would_lose == 0 and not plan.waiting
+    assert "1 not found (pick a match or remove it in Synclassic)" in "\n".join(plan.summary())
+    sync.apply_plan(library, plan, lambda s: None)
+    titles = [s.title for s in on_ipod]
+    assert playlist_titles(read_db(ipod), "Old Mix") == [titles[0], "New Song 1", titles[1], titles[2]]  # Spotify order
+
+    # Later "Verse" is found: Synclassic owns the playlist now, so it's simply added.
+    verse = tmp_path / "verse.m4a"
+    make_audio(verse, seconds=2)
+    library.update_track(items[-1].id, status="downloaded", file_path=str(verse))
+    plan = sync.make_plan(library, ipod)
+    assert plan.playlists[0].action == "update"
+    sync.apply_plan(library, plan, lambda s: None)
+    assert playlist_titles(read_db(ipod), "Old Mix")[-1] == "Verse"
+
+
+def test_a_waiting_playlist_is_always_said(tmp_path, ipod):
+    library = Library(config.app_dir() / "library.db")
+    playlist = library.add_playlist("old mix", SourceSpec("spotify", "https://open.spotify.com/playlist/" + "6" * 22))
+    apply_source(library, playlist, SourcePlaylist("old mix", [song(1), Track("Lost", ["Nobody"], spotify_id="l" * 22)]))
+    first, lost = library.playlist_tracks(playlist)
+    path = tmp_path / "a.m4a"
+    make_audio(path, seconds=2)
+    library.update_track(first.id, status="downloaded", file_path=str(path))
+    library.update_track(lost.id, status="unmatched")
+    plan = sync.make_plan(library, ipod)
+    assert [p.library.name for p in plan.waiting] == ["old mix"]  # it would drop the iPod's 3 songs
+    reason = plan.waiting[0].wait_reason()
+    assert "would remove 3 of its songs" in reason and "1 not found" in reason
+    messages = []
+    sync.apply_plan(library, plan, messages.append)
+    assert any(m.startswith("⏸ “old mix” was left as it is") for m in messages)

@@ -5,6 +5,8 @@ import time
 
 import pytest
 
+from tests.test_ipod_sync import ipod  # noqa: F401  (fixture: a fake iPod with its own "Old Mix" playlist)
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 QtWidgets = pytest.importorskip("PySide6.QtWidgets")
 
@@ -815,4 +817,38 @@ def test_appearance_switches_live(app):
         assert settings.appearance == "dark"
     finally:
         theme.apply(app, "aqua")
+        window.close()
+
+
+def test_a_waiting_playlist_is_mentioned_after_an_automatic_sync(app, monkeypatch, tmp_path, ipod):
+    from PySide6.QtWidgets import QMessageBox
+
+    from synclassic import config
+    from synclassic.gui.main_window import MainWindow
+    from synclassic.library import Library
+    from synclassic.models import SourcePlaylist, Track
+    from synclassic.sources import SourceSpec
+    from synclassic.update import apply_source
+    from tests.conftest import make_audio
+    from tests.test_ipod_sync import song
+
+    monkeypatch.setenv("SYNCLASSIC_IPOD", str(ipod.root))  # has its own "Old Mix" playlist of 3 songs
+    library = Library(config.app_dir() / "library.db")
+    playlist = library.add_playlist("old mix", SourceSpec("spotify", "https://open.spotify.com/playlist/" + "5" * 22))
+    apply_source(library, playlist, SourcePlaylist("old mix", [song(1), Track("Lost", ["Nobody"], spotify_id="l" * 22)]))
+    first, lost = library.playlist_tracks(playlist)
+    make_audio(tmp_path / "a.m4a", seconds=2)
+    library.update_track(first.id, status="downloaded", file_path=str(tmp_path / "a.m4a"))
+    library.update_track(lost.id, status="unmatched")
+    library.close()
+    asked = []
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(
+        lambda parent, title, text, *a, **k: asked.append(text) or QMessageBox.StandardButton.No))
+    window = MainWindow()
+    try:
+        window.sync_ipod(quick=True)
+        assert wait_until(app, lambda: bool(asked), 30)
+        assert "“old mix” was left as it is" in asked[0] and "1 not found" in asked[0]
+        assert "⏸ “old mix”" in window.log.toPlainText()
+    finally:
         window.close()

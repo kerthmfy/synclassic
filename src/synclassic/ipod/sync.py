@@ -92,10 +92,25 @@ class PlannedPlaylist:
     ipod_id: int | None
     items: list[LibraryTrack]
     unchanged: bool = False
-    missing: int = 0  # songs not on the iPod and not downloaded yet
+    missing: int = 0  # songs not on the iPod and not ready (downloading, or not found)
+    not_found: int = 0  # of those, songs YouTube didn't have (they won't come by waiting)
     reused: int = 0
     copied: int = 0
     ipod_count: int = 0  # songs in the iPod's playlist now (take over / update)
+    would_lose: int = 0  # take over: songs in the iPod's playlist that the new one doesn't have
+
+    def missing_text(self) -> str:
+        parts = []
+        if self.missing - self.not_found:
+            parts.append(f"{self.missing - self.not_found} not downloaded yet")
+        if self.not_found:
+            parts.append(f"{self.not_found} not found (pick a match or remove "
+                         f"{'it' if self.not_found == 1 else 'them'} in Synclassic)")
+        return ", ".join(parts)
+
+    def wait_reason(self) -> str:
+        return (f"“{self.library.name}” was left as it is on the iPod ({self.ipod_count} songs): taking it over now "
+                f"would remove {self.would_lose} of its songs while {self.missing_text()}.")
 
 
 @dataclass
@@ -143,6 +158,11 @@ class Plan:
                 and not self.remove_videos and all(p.action != "take over" for p in self.playlists))
 
     @property
+    def waiting(self) -> list[PlannedPlaylist]:
+        """Playlists left as they are on the iPod this time (say so: they never count as changes)."""
+        return [p for p in self.playlists if p.action == "wait"]
+
+    @property
     def total_to_copy(self) -> int:
         return self.bytes_to_copy + self.podcasts.bytes_to_copy + sum(p.stat().st_size for _, _, p in self.videos)
 
@@ -163,10 +183,7 @@ class Plan:
         for planned in self.playlists:
             name = planned.library.name
             if planned.action == "wait":
-                lines.append(
-                    f"  ⏸ “{name}”: left as it is on the iPod ({planned.ipod_count} songs) until all its songs are "
-                    f"ready: {planned.missing} not downloaded yet"
-                )
+                lines.append(f"  ⏸ {planned.wait_reason()}")
                 continue
             if planned.unchanged:
                 lines.append(f"  · {name}: no changes ({len(planned.items)} songs)")
@@ -174,7 +191,7 @@ class Plan:
             verb = {"create": "Create", "update": "Update", "take over": "Take over iPod playlist"}[planned.action]
             detail = [f"{planned.reused} already on iPod", f"{planned.copied} to copy"]
             if planned.missing:
-                detail.append(f"{planned.missing} not downloaded yet")
+                detail.append(planned.missing_text())
             line = f"  · {verb} “{name}”: {len(planned.items)} songs ({', '.join(detail)})"
             if planned.action in ("take over", "update") and planned.ipod_count and len(planned.items) < planned.ipod_count:
                 line += f"; the iPod's version has {planned.ipod_count}"
@@ -366,12 +383,19 @@ def make_plan(library: Library, ipod: IPod, db: itunesdb.Chunk | None = None) ->
         all_items = library.playlist_tracks(playlist)
         planned = PlannedPlaylist(playlist, action, ipod_id, items)
         planned.missing = sum(1 for i in all_items if i.key in plan.not_ready)
+        planned.not_found = sum(1 for i in all_items if i.key in plan.not_ready and i.status in ("unmatched", "failed"))
         planned.reused = sum(1 for i in items if i.key in plan.reuse)
         planned.copied = sum(1 for i in items if i.key in copying)
         planned.ipod_count = len(existing[ipod_id].track_ids) if ipod_id is not None else 0
-        if action == "take over" and planned.missing:
-            # Never replace an iPod playlist with an incomplete one: it would lose songs.
-            planned.action = "wait"
+        if action == "take over":
+            id_by_dbid = {s.dbid: s.id for s in songs}
+            keeps = {id_by_dbid.get(plan.reuse[i.key]) for i in items if i.key in plan.reuse}
+            planned.would_lose = sum(1 for song_id in existing[ipod_id].track_ids if song_id not in keeps)
+            if planned.missing and planned.would_lose:
+                # Don't replace an iPod playlist with an incomplete one that drops songs it has now:
+                # wait until every song is ready. (When nothing would be lost, go ahead: the songs
+                # that aren't ready join the playlist once they are, since Synclassic then owns it.)
+                planned.action = "wait"
         if ipod_id is not None and action == "update" and not copying.intersection(i.key for i in items):
             current = existing[ipod_id]
             dbids = [plan.reuse.get(i.key) for i in items]
@@ -801,6 +825,8 @@ def apply_plan(
     if hasattr(os, "sync"):
         os.sync()
     say("Sync complete.")
+    for planned in plan.waiting:
+        say(f"⏸ {planned.wait_reason()}")
     # Songs to keep only on the iPod: now that they're safely there, this Mac's copy can go.
     from synclassic import destinations
 

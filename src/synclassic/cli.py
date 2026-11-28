@@ -259,8 +259,10 @@ def _send_to_ipod(library: Library, playlists: list[LibraryPlaylist]) -> None:
                 say("The iPod check didn't pass, so nothing was copied: see 'synclassic ipod'.")
                 return
             plan = ipod_sync.make_plan(library, ipod)
+        for planned in getattr(plan, "waiting", []):
+            say(f"⏸ {planned.wait_reason()}")
         if not plan.has_changes:
-            say("The iPod already has everything.")
+            say("The iPod already has everything it can have for now.")
             return
         if not plan.only_adds or not plan.fits:
             for line in plan.summary():

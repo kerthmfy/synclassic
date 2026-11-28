@@ -2872,9 +2872,14 @@ class MainWindow(QMainWindow):
                 return
             plan = value
             lines = plan.summary()
+            waiting = getattr(plan, "waiting", [])  # Rockbox plans never wait
+            for planned in waiting:
+                self.say(f"⏸ {planned.wait_reason()}")
             if not plan.has_changes:
                 if quick:
-                    self.status_label.setText("Your iPod is up to date")
+                    self.status_label.setText(
+                        f"“{waiting[0].library.name}” is waiting on the iPod: see the activity (≡)" if waiting
+                        else "Your iPod is up to date")
                     return
                 QMessageBox.information(self, "iPod is up to date", "\n".join(lines[1:]))
                 return
@@ -2909,6 +2914,8 @@ class MainWindow(QMainWindow):
 
         path = self.library_path
 
+        waiting = [p.wait_reason() for p in getattr(plan, "waiting", [])]
+
         def work(task: Task):
             from synclassic.ipod import rockbox
 
@@ -2931,7 +2938,10 @@ class MainWindow(QMainWindow):
             if load_settings().scrobble_after_sync:
                 QTimer.singleShot(50, lambda: self.scrobble_now(quiet=True))
             QTimer.singleShot(100, self._send_otg_to_spotify)
-            answer = QMessageBox.question(self, "Sync complete", "Your iPod is synced. Eject it now?")
+            text = "Your iPod is synced."
+            if waiting:
+                text += "\n\n" + "\n".join(waiting)
+            answer = QMessageBox.question(self, "Sync complete", text + "\n\nEject it now?")
             if answer == QMessageBox.StandardButton.Yes:
                 QTimer.singleShot(0, self.eject_ipod)
 
