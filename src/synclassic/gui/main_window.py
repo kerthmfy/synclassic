@@ -224,6 +224,12 @@ class MainWindow(QMainWindow):
         self.mini_action = action("Mini Player", lambda: self.show_mini_player(), QKeySequence("Ctrl+Shift+M"))
         self.log_action = action("Show Activity", self._toggle_log, QKeySequence("Ctrl+L"))
         self.log_action.setCheckable(True)
+        self.karaoke_action = action("Lyrics", lambda: self._toggle_now_playing("lyrics"), QKeySequence("Ctrl+Shift+L"),
+                                     "The playing song's lyrics, following along (karaoke)")
+        self.karaoke_action.setCheckable(True)
+        self.visualizer_action = action("Visualizer", lambda: self._toggle_now_playing("visualizer"),
+                                        QKeySequence("Ctrl+T"), "Bars that move with the playing song")
+        self.visualizer_action.setCheckable(True)
 
     def _build_menus(self) -> None:
         bar = self.menuBar()
@@ -243,6 +249,9 @@ class MainWindow(QMainWindow):
                     None, self.mini_action):
             controls.addSeparator() if act is None else controls.addAction(act)
         view_menu = bar.addMenu("View")
+        view_menu.addAction(self.karaoke_action)
+        view_menu.addAction(self.visualizer_action)
+        view_menu.addSeparator()
         view_menu.addAction(self.log_action)
         help_menu = bar.addMenu("Help")
         about = QAction("About Synclassic", self)
@@ -461,7 +470,14 @@ class MainWindow(QMainWindow):
         self.ipod_songs.reorder_requested.connect(self._reorder)
         for table in self._ipod_tables():
             table.doubleClicked.connect(lambda index, t=table: self._play_from_table(t, index.row()))
-        right_layout.addWidget(self.stack, 1)
+        from synclassic.gui.now_playing import NowPlayingPanel
+
+        self.now_playing = NowPlayingPanel()
+        self.now_playing.seek_requested.connect(self.player.seek)
+        self.content = QStackedWidget()  # the views, or Lyrics / Visualizer over them
+        self.content.addWidget(self.stack)
+        self.content.addWidget(self.now_playing)
+        right_layout.addWidget(self.content, 1)
 
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
@@ -638,9 +654,16 @@ class MainWindow(QMainWindow):
         self.repeat_button = square("", "Repeat: Off", lambda: self.repeat_action.trigger())
         self.repeat_button.setCheckable(True)
 
-        for button in (self.shuffle_button, self.repeat_button):
+        self.karaoke_button = square("", "Lyrics (karaoke)", lambda: self.karaoke_action.trigger())
+        self.visualizer_button = square("", "Visualizer", lambda: self.visualizer_action.trigger())
+        for button in (self.shuffle_button, self.repeat_button, self.karaoke_button, self.visualizer_button):
             button.setIconSize(QSize(16, 16))
+        for button in (self.karaoke_button, self.visualizer_button):
+            button.setCheckable(True)
         for button in (self.shuffle_button, self.repeat_button):
+            row.addWidget(button)
+        row.addSpacing(6)
+        for button in (self.karaoke_button, self.visualizer_button):
             row.addWidget(button)
         row.addStretch(1)
         self.summary_label = QLabel("")
@@ -780,6 +803,7 @@ class MainWindow(QMainWindow):
     def _sidebar_changed(self, current, previous) -> None:
         if current is not None and current.data(0, SECTION_ROLE):
             return
+        self._close_now_playing()
         self.current_key = current.data(0, Qt.ItemDataRole.UserRole) if current else None
         self._show_current()
 
@@ -1306,11 +1330,14 @@ class MainWindow(QMainWindow):
         self.repeat_button.setToolTip(label)
 
     def _playing_changed(self, playing: bool) -> None:
+        self.now_playing.set_playing(playing)
         self.play_button.symbol = "pause" if playing else "play"
         self.play_button.update()
         self.play_action.setText("Pause" if playing else "Play")
 
     def _track_changed(self, item) -> None:
+        self.now_playing.set_position(0)
+        self._load_now_playing(item)
         self._playing_key = item.key if item is not None else None
         song_id = item.key[1] if item is not None and item.key and item.key[0] == "ipod" else None
         for table in self._ipod_tables():
@@ -1335,6 +1362,7 @@ class MainWindow(QMainWindow):
         self._load_artwork(item)
 
     def _position_changed(self, position: int, duration: int) -> None:
+        self.now_playing.set_position(position)
         if self.job is None:
             if not self.lcd.seek_row.isVisible() and self.player.current is not None:
                 self._idle_lcd()
@@ -1441,6 +1469,8 @@ class MainWindow(QMainWindow):
         quiet.setPixmap(speaker_pixmap(0, 12, colour))
         loud.setPixmap(speaker_pixmap(2, 12, colour))
         self.shuffle_button.setIcon(QIcon(control_pixmap("shuffle", color=colour)))
+        self.karaoke_button.setIcon(QIcon(control_pixmap("lyrics", color=colour)))
+        self.visualizer_button.setIcon(QIcon(control_pixmap("visualizer", color=colour)))
         self.repeat_button.setIcon(QIcon(control_pixmap(getattr(self, "_repeat_icon", "repeat"), color=colour)))
         if self.ipod is not None:
             self._show_ipod_choices()
@@ -2098,6 +2128,72 @@ class MainWindow(QMainWindow):
         number = getattr(self.player, "position", 0) + 1
         total = len(getattr(self.player, "order", []) or [])
         self.ipod_graphic.set_now_playing(item, number if item else 0, total)
+
+    # --- Lyrics (karaoke) and the Visualizer ----------------------------------------------------
+
+    def _toggle_now_playing(self, mode: str) -> None:
+        showing = self.content.currentWidget() is self.now_playing and self.now_playing.mode == mode
+        if showing:
+            self._close_now_playing()
+            return
+        self.content.setCurrentWidget(self.now_playing)
+        self.now_playing.show_mode(mode)
+        for act, button, which in ((self.karaoke_action, self.karaoke_button, "lyrics"),
+                                   (self.visualizer_action, self.visualizer_button, "visualizer")):
+            act.setChecked(which == mode)
+            button.setChecked(which == mode)
+        self.now_playing.set_playing(self.player.is_playing)
+        self._load_now_playing(self.player.current)
+
+    def _close_now_playing(self) -> None:
+        if self.content.currentWidget() is self.now_playing:
+            self.content.setCurrentWidget(self.stack)
+        self.now_playing.stop()
+        for act, button in ((self.karaoke_action, self.karaoke_button), (self.visualizer_action, self.visualizer_button)):
+            act.setChecked(False)
+            button.setChecked(False)
+
+    def _load_now_playing(self, item) -> None:
+        """Lyrics or the bars for the song that's playing (looked up in the background)."""
+        if self.content.currentWidget() is not self.now_playing:
+            return
+        panel = self.now_playing
+        if item is None:
+            panel.set_song("", "", None)
+            panel.lyrics_view.set_lyrics(None, "Play a song to see its lyrics here.")
+            panel.visualizer.set_spectrum(None, "Play a song to see it here.")
+            return
+        panel.set_song(item.title, item.artist, self._cover_image(item))
+        self._now_playing_item = item
+        if panel.mode == "lyrics":
+            panel.lyrics_view.set_lyrics(None, "Looking for lyrics…")
+
+            def work(task):
+                from synclassic import synced_lyrics
+
+                return synced_lyrics.find(item.path, item.artist, item.title, item.album,
+                                          round(item.length_ms / 1000), network=load_settings().lyrics)
+
+            def show(found):
+                if getattr(self, "_now_playing_item", None) is item:
+                    panel.lyrics_view.set_lyrics(found, "" if found else "No lyrics found for this song.")
+
+            run_in_background(self, work, show,
+                              lambda error: panel.lyrics_view.set_lyrics(None, f"Couldn't get lyrics: {error}"))
+        else:
+            panel.visualizer.set_spectrum(None, "Listening…")
+
+            def work(task):
+                from synclassic import spectrum
+
+                return spectrum.analyse(item.path)
+
+            def show(result):
+                if getattr(self, "_now_playing_item", None) is item:
+                    panel.visualizer.set_spectrum(result)
+
+            run_in_background(self, work, show,
+                              lambda error: panel.visualizer.set_spectrum(None, f"Can't show this song: {error}"))
 
     def _cover_image(self, item):
         """A playing song's cover, for the Virtual iPod: from the iPod's artwork, or inside the file."""

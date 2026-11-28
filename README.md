@@ -276,6 +276,16 @@ with the controls and display; a music note in the menu bar shows the current so
 Next and Previous (turn off in Settings). With Last.fm connected, songs you play in Synclassic
 show as "Now Playing" on your profile and are scrobbled right away (Settings → Last.fm).
 
+**Lyrics (karaoke)**: View → **Lyrics** (⇧⌘L, or the speech bubble at the bottom) shows the
+playing song's lyrics with the line being sung large and bright, scrolling along with the song;
+click a line to jump there. Timed lyrics come from LRCLIB (and are kept for next time); songs
+without timed lyrics show their plain lyrics.
+
+**Visualizer**: View → **Visualizer** (⌘T) shows bars that move with the playing song.
+
+**Appearance**: Settings → **Appearance**: Aqua (the original), Graphite (Apple's grey version),
+Midnight (dark), or Automatic (Midnight when macOS is in Dark Mode). It changes right away.
+
 **Listening Stats** (under LIBRARY): your top songs, artists, albums and genres for the last 7 or
 30 days (from plays Synclassic records from now on: the iPod's at each sync and songs played in
 the app), or all time from the iPod's own play counts.

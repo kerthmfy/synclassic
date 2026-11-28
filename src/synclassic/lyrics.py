@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS lyrics_lookups (
 class Found:
     text: str | None  # plain lyrics; None for an instrumental
     instrumental: bool = False
+    synced: str | None = None  # timed (LRC) lyrics, when LRCLIB has them
 
 
 def _song_key(artist: str, title: str) -> str:
@@ -47,11 +48,12 @@ def _song_key(artist: str, title: str) -> str:
 def _plain(item: dict) -> Found | None:
     if item.get("instrumental"):
         return Found(None, instrumental=True)
+    synced = (item.get("syncedLyrics") or "").strip() or None
     text = (item.get("plainLyrics") or "").strip()
-    if not text and item.get("syncedLyrics"):  # only timed lyrics: drop the [mm:ss.xx] stamps
-        lines = [line.split("]", 1)[-1].strip() for line in item["syncedLyrics"].splitlines()]
+    if not text and synced:  # only timed lyrics: drop the [mm:ss.xx] stamps
+        lines = [line.split("]", 1)[-1].strip() for line in synced.splitlines()]
         text = "\n".join(lines).strip()
-    return Found(text) if text else None
+    return Found(text, synced=synced) if text else None
 
 
 class LyricsFinder:
@@ -196,6 +198,13 @@ def fetch_and_write(path: pathlib.Path, artist: str, title: str, album: str, dur
     result = "found" if found and found.text else ("instrumental" if found else "none")
     if found and found.text:
         write(path, found.text)
+    if found and found.synced:  # kept for karaoke in the app (View → Lyrics)
+        try:
+            from synclassic import synced_lyrics
+
+            synced_lyrics.remember(artist, title, found.synced)
+        except OSError:
+            pass
     if lookups is not None:
         lookups.remember(artist, title, result)
     return result

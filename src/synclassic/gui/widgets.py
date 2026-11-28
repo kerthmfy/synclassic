@@ -906,6 +906,28 @@ def control_pixmap(kind: str, size: int = 16, color: str = "#2e2e2e"):
         painter.setBrush(Qt.BrushStyle.NoBrush)
 
     painter.setPen(pen)
+    if kind == "lyrics":  # a speech bubble with lines of words
+        bubble = QPainterPath()
+        bubble.addRoundedRect(QRectF(s * 0.1, s * 0.16, s * 0.8, s * 0.56), s * 0.14, s * 0.14)
+        bubble.moveTo(s * 0.3, s * 0.72)
+        bubble.lineTo(s * 0.24, s * 0.9)
+        bubble.lineTo(s * 0.46, s * 0.72)
+        painter.drawPath(bubble)
+        thin = QPen(pen)
+        thin.setWidthF(s * 0.08)
+        painter.setPen(thin)
+        for y, right in ((0.34, 0.72), (0.5, 0.6)):
+            painter.drawLine(QPointF(s * 0.26, s * y), QPointF(s * right, s * y))
+        painter.end()
+        return pixmap
+    if kind == "visualizer":  # bars
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(color))
+        for index, height in enumerate((0.35, 0.7, 0.5, 0.85, 0.45)):
+            painter.drawRoundedRect(QRectF(s * (0.1 + index * 0.17), s * (0.9 - height), s * 0.12, s * height),
+                                    s * 0.03, s * 0.03)
+        painter.end()
+        return pixmap
     if kind == "shuffle":
         for y0, y1 in ((0.3, 0.7), (0.7, 0.3)):
             path = QPainterPath()
