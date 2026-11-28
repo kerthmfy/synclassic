@@ -198,6 +198,14 @@ signature and should work too, but is untested; the nano 5G and later aren't sup
 formatted for Windows (FAT32), which many modded iPods are, work the same way: Synclassic
 ignores the "._" files macOS leaves on them and skips files of 4 GB or more, which FAT32 can't hold.
 
+**Rockbox.** On an iPod running [Rockbox](https://www.rockbox.org) (the open-source firmware),
+Synclassic copies songs as plain files to `Music/Artist/Album/` with a `cover.jpg`, and writes
+each playlist as `Playlists/Name.m3u8`. Only what Synclassic added is ever removed; your own files
+there are left alone. Afterwards, update Rockbox's database on the iPod (Settings → General →
+Database → Update Now, or turn on Auto Update). An iPod with both Rockbox and Apple's firmware is
+synced for Apple's unless you tick **Sync for Rockbox** in the app (or run
+`synclassic ipod mode rockbox`).
+
 **1. Check it** (read-only, nothing is changed):
 
 ```bash

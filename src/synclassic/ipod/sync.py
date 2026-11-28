@@ -134,6 +134,12 @@ class Plan:
         return self.total_to_copy + SPACE_MARGIN <= self.free_bytes + self.total_to_free
 
     @property
+    def only_adds(self) -> bool:
+        """Nothing is removed or taken over (Update & Sync then goes ahead without asking)."""
+        return (not self.remove_songs and not self.remove_playlists and not self.podcasts.remove
+                and not self.remove_videos and all(p.action != "take over" for p in self.playlists))
+
+    @property
     def total_to_copy(self) -> int:
         return self.bytes_to_copy + self.podcasts.bytes_to_copy + sum(p.stat().st_size for _, _, p in self.videos)
 

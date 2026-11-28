@@ -43,6 +43,11 @@ class IPod:
         return self.root.name
 
     @property
+    def is_rockbox(self) -> bool:
+        """Rockbox (the open-source firmware) is installed."""
+        return (self.root / ".rockbox").is_dir()
+
+    @property
     def control(self) -> pathlib.Path:
         return self.root / "iPod_Control"
 
@@ -171,7 +176,7 @@ def find_ipods() -> list[IPod]:
     found = []
     for root in _candidate_roots():
         try:
-            if (root / "iPod_Control" / "iTunes").is_dir():
+            if (root / "iPod_Control" / "iTunes").is_dir() or (root / ".rockbox").is_dir():
                 found.append(IPod(root, read_sysinfo(root)))
         except OSError:
             continue
@@ -180,6 +185,6 @@ def find_ipods() -> list[IPod]:
 
 def ipod_at(path: str | pathlib.Path) -> IPod:
     root = pathlib.Path(path).expanduser()
-    if not (root / "iPod_Control").is_dir():
+    if not (root / "iPod_Control").is_dir() and not (root / ".rockbox").is_dir():
         raise FileNotFoundError(f"No iPod at {root} (there's no iPod_Control folder).")
     return IPod(root, read_sysinfo(root))

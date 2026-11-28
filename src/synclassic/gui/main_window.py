@@ -541,6 +541,13 @@ class MainWindow(QMainWindow):
         form.addWidget(self.ipod_details)
         info.addWidget(summary)
         buttons = QHBoxLayout()
+        from PySide6.QtWidgets import QCheckBox
+
+        self.rockbox_box = QCheckBox("Sync for Rockbox (files and .m3u8 playlists) instead of Apple's firmware")
+        self.rockbox_box.setToolTip("This iPod has Rockbox. Synclassic can sync for Rockbox (songs in folders, "
+                                    "playlists as .m3u8) or for Apple's firmware.")
+        self.rockbox_box.toggled.connect(self._rockbox_toggled)
+        self.rockbox_box.hide()
         self.ipod_sync_button = QPushButton("Update && Sync")
         self.ipod_sync_button.setProperty("aqua", True)
         self.ipod_sync_button.setMinimumWidth(130)
@@ -557,6 +564,7 @@ class MainWindow(QMainWindow):
         buttons.addWidget(eject)
         buttons.addStretch(1)
         info.addLayout(buttons)
+        info.addWidget(self.rockbox_box)
         maintenance = QHBoxLayout()
         for text, slot in (("Backups…", self.show_backups), ("Clean Up…", self.show_cleanup),
                            ("Fix Album Art…", self.show_fix_art)):
@@ -1585,6 +1593,13 @@ class MainWindow(QMainWindow):
 
         self._run_job("Filling in genres and years…", work, finished, verb="Looking up")
 
+    def _rockbox_toggled(self, on: bool) -> None:
+        from synclassic.ipod import rockbox
+
+        if self.ipod is not None:
+            rockbox.set_mode(self.ipod, rockbox.ROCKBOX if on else rockbox.APPLE)
+            self.say(f"{self.ipod.name} is synced for {'Rockbox' if on else 'Apple firmware'} from now on.")
+
     def show_extras(self) -> None:
         from synclassic.gui.maintenance_dialogs import ExtrasDialog
 
@@ -1710,7 +1725,7 @@ class MainWindow(QMainWindow):
     def _load_ipod_contents(self) -> None:
         """Read what's on the iPod (in the background), then show it in the source list."""
         ipod = self.ipod
-        if ipod is None:
+        if ipod is None or not ipod.database_path.is_file():  # none, or Rockbox only (no Apple database)
             self.ipod_contents = None
             self.on_ipod_keys = set()
             self.ipod_graphic.set_contents(None)
@@ -2243,9 +2258,22 @@ class MainWindow(QMainWindow):
         ipod = self.ipod
         if ipod is None:
             return
+        from synclassic.ipod import rockbox
+
         display = self.ipod_contents.name if self.ipod_contents else ipod.name
         self.ipod_name.setText(display)
         self.ipod_graphic.set_screen(display, "Reading…")
+        self.rockbox_box.blockSignals(True)
+        self.rockbox_box.setVisible(ipod.is_rockbox and ipod.database_path.is_file())
+        self.rockbox_box.setChecked(rockbox.mode(ipod) == rockbox.ROCKBOX)
+        self.rockbox_box.blockSignals(False)
+        if not ipod.database_path.is_file():  # Rockbox only: no Apple database to read
+            total, free = ipod.disk_usage()
+            self._render_ipod_details([("Name", display), ("Firmware", "Rockbox" if ipod.is_rockbox else "unknown"),
+                                       ("Capacity", f"{total / 1000**3:.1f} GB")])
+            self.capacity.set_values(0, total - free, free)
+            self.ipod_graphic.set_screen(display, "Rockbox" if ipod.is_rockbox else "No music database")
+            return
         total, free = ipod.disk_usage()
         rows = [("Name", display), ("Model", ipod.model), ("Software Version", ipod.firmware or "unknown"),
                 ("Capacity", f"{total / 1000**3:.1f} GB")]
@@ -2550,9 +2578,17 @@ class MainWindow(QMainWindow):
         path = self.library_path
 
         def prepare(task):
+            from synclassic.ipod import rockbox
+
             ipods = find_ipods()
             if not ipods:
                 return None
+            if rockbox.mode(ipods[0]) == rockbox.ROCKBOX:
+                library = Library(path)
+                try:
+                    return ("plan", rockbox.make_plan(library, ipods[0]))
+                finally:
+                    library.close()
             report = check(ipods[0])
             if not report.safe_to_manage:
                 return ("unsafe", format_report(report))
@@ -2584,10 +2620,7 @@ class MainWindow(QMainWindow):
             if not plan.fits:
                 QMessageBox.warning(self, "Not enough space", "\n".join(lines))
                 return
-            only_adds = not plan.remove_songs and not plan.remove_playlists and all(
-                p.action != "take over" for p in plan.playlists
-            )
-            if quick and only_adds:
+            if quick and plan.only_adds:
                 self._apply_sync(plan)
                 return
             box = QMessageBox(QMessageBox.Icon.Question, "Sync iPod", "\n".join(lines[:1] + lines[1:12]), parent=self)
@@ -2609,12 +2642,13 @@ class MainWindow(QMainWindow):
         path = self.library_path
 
         def work(task: Task):
+            from synclassic.ipod import rockbox
+
             library = Library(path)
             try:
-                ipod_sync.apply_plan(
-                    library, plan, task.say, should_stop=task.should_stop,
-                    progress=lambda n, total, text: task.progress.emit(n, total, text),
-                )
+                apply = rockbox.apply if isinstance(plan, rockbox.RockboxPlan) else ipod_sync.apply_plan
+                apply(library, plan, task.say, should_stop=task.should_stop,
+                      progress=lambda n, total, text: task.progress.emit(n, total, text))
                 return {"summary": "iPod synced.", "ipod": plan.ipod}
             finally:
                 library.close()

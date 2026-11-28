@@ -504,7 +504,34 @@ def cmd_ipod(args) -> int:
         say(f"Restored the database from {folder.name}.")
         return 0
 
+    if action == "mode":
+        from synclassic.ipod import rockbox
+
+        if not ipod.is_rockbox:
+            say("This iPod doesn't have Rockbox; it's synced for Apple's firmware.")
+            return 0
+        if args.names:
+            if args.names[0] not in (rockbox.APPLE, rockbox.ROCKBOX):
+                say("Usage: synclassic ipod mode apple|rockbox")
+                return 1
+            rockbox.set_mode(ipod, args.names[0])
+        say(f"Synced for: {'Rockbox' if rockbox.mode(ipod) == rockbox.ROCKBOX else 'Apple firmware'}")
+        return 0
+
     # sync
+    from synclassic.ipod import rockbox
+
+    if rockbox.mode(ipod) == rockbox.ROCKBOX:
+        library = open_library()
+        plan = rockbox.make_plan(library, ipod)
+        for line in plan.summary():
+            say(line)
+        if args.dry_run or not plan.has_changes or not plan.fits:
+            return 0 if plan.fits else 1
+        if not args.yes and input("Sync now? [y/N] ").strip().lower() != "y":
+            return 0
+        rockbox.apply(library, plan, say)
+        return 0
     report = check(ipod)
     if not report.safe_to_manage:
         for line in format_report(report):
@@ -897,7 +924,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_config)
 
     p = sub.add_parser("ipod", help="iPod: check (default, read-only), sync, restore a backup, eject, art (fix album art)")
-    p.add_argument("action", nargs="?", default="check", choices=["check", "sync", "restore", "eject", "art", "soundcheck", "smart", "audiobooks"])
+    p.add_argument("action", nargs="?", default="check", choices=["check", "sync", "restore", "eject", "art", "soundcheck", "smart", "audiobooks", "mode"])
     p.add_argument("names", nargs="*", help="smart: which smart playlists to have")
     p.add_argument("backup", nargs="?", type=int, help="restore: backup number (see 'synclassic ipod restore')")
     p.add_argument("--path", help="the iPod's folder, if it isn't found automatically")
