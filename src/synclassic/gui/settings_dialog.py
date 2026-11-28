@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
+    QSpinBox,
     QFileDialog,
     QFormLayout,
     QGroupBox,
@@ -108,6 +109,11 @@ class SettingsDialog(QDialog):
         self.pause.setSuffix(" s")
         self.pause.setValue(self.settings.download_pause)
         form.addRow("Pause between downloads", self.pause)
+        self.parallel = QSpinBox()
+        self.parallel.setRange(1, 3)
+        self.parallel.setValue(max(1, min(3, self.settings.parallel_downloads)))
+        self.parallel.setToolTip("More is faster, but YouTube may slow down or refuse downloads that come too quickly.")
+        form.addRow("Songs downloading at once", self.parallel)
 
         from synclassic.sources.store import default_country
 
@@ -207,6 +213,19 @@ class SettingsDialog(QDialog):
         login_row.addWidget(self.logout_button)
         login_row.addStretch(1)
         box.addLayout(login_row)
+        from synclassic import otg_spotify
+
+        self.otg_to_spotify = QCheckBox("Make the On-The-Go playlists from my iPod in my Spotify account too")
+        self.otg_to_spotify.setChecked(self.settings.otg_to_spotify)
+        self.otg_to_spotify.setToolTip("As private playlists, at each sync. Needs the login above.")
+        box.addWidget(self.otg_to_spotify)
+        token = spotify_auth.load_token()
+        if token and not otg_spotify.has_permission(token):
+            note = QLabel("<span style='color: gray'>For that, log in again once: Synclassic now also asks to make "
+                          "private playlists.</span>")
+            note.setWordWrap(True)
+            box.addWidget(note)
+        box.addStretch(1)
         self.tabs.addTab(spotify, "Spotify")
 
         # --- last.fm ---
@@ -261,6 +280,11 @@ class SettingsDialog(QDialog):
         self.lastfm_live = QCheckBox("Songs played in Synclassic: show them as “Now Playing” and scrobble them right away")
         self.lastfm_live.setChecked(self.settings.lastfm_live)
         lbox.addWidget(self.lastfm_live)
+        self.lastfm_love = QCheckBox("Love songs on Last.fm that you rate 5 stars on the iPod")
+        self.lastfm_love.setChecked(self.settings.lastfm_love)
+        self.lastfm_love.setToolTip("Rate a song 5 stars on the iPod (hold the centre button while it plays) and it's "
+                                    "loved on Last.fm at the next sync. Lowering a 5-star rating un-loves it.")
+        lbox.addWidget(self.lastfm_love)
         self.tabs.addTab(lastfm_box, "Last.fm")
         self._show_lastfm()
 
@@ -373,6 +397,7 @@ class SettingsDialog(QDialog):
         self.settings.mp3_quality = self.mp3_quality.currentData()
         self.settings.cookies_from_browser = self.cookies.currentData()
         self.settings.download_pause = float(self.pause.value())
+        self.settings.parallel_downloads = self.parallel.value()
         self.settings.full_playlist_reader = self.full_reader.isChecked()
         self.settings.sound_check = self.sound_check.isChecked()
         country = self.store_country.text().strip().upper()
@@ -388,6 +413,8 @@ class SettingsDialog(QDialog):
         self.settings.folder_layout = self.layout_choice.currentData()
         self.settings.scrobble_after_sync = self.scrobble_after.isChecked()
         self.settings.lastfm_live = self.lastfm_live.isChecked()
+        self.settings.lastfm_love = self.lastfm_love.isChecked()
+        self.settings.otg_to_spotify = self.otg_to_spotify.isChecked()
         self.settings.menu_bar_player = self.menu_bar.isChecked()
         from synclassic import lastfm
 

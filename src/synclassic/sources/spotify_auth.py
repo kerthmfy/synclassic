@@ -26,7 +26,8 @@ TOKEN_URL = "https://accounts.spotify.com/api/token"
 REDIRECT_HOST = "127.0.0.1"
 REDIRECT_PORT = 8898
 REDIRECT_URI = f"http://{REDIRECT_HOST}:{REDIRECT_PORT}/callback"
-SCOPES = "playlist-read-private playlist-read-collaborative user-library-read"
+# playlist-modify-private: only to make your iPod's On-The-Go playlists in your account (otg_to_spotify).
+SCOPES = "playlist-read-private playlist-read-collaborative user-library-read playlist-modify-private"
 
 
 class SpotifyAuthError(RuntimeError):

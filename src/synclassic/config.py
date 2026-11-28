@@ -45,6 +45,9 @@ class Settings:
     spotify_client_id: str = ""
     # Seconds to wait between downloads, to stay polite to YouTube.
     download_pause: float = 2.0
+    # How many songs download at the same time (1-3). More is faster, but YouTube may slow
+    # down or block downloads that come too quickly.
+    parallel_downloads: int = 2
     # Read public playlists over 100 songs in full by scrolling Spotify's web page.
     full_playlist_reader: bool = True
     # "artist": Music/Artist/Album/Song.m4a   "playlist": <Playlist>/Artist - Song.m4a
@@ -72,6 +75,11 @@ class Settings:
     store_country: str = ""
     # A chime when a sync finishes.
     sync_sound: bool = True
+    # Songs you rate 5 stars on the iPod are "loved" on Last.fm (and un-loved when you lower them).
+    lastfm_love: bool = True
+    # On-The-Go playlists made on the iPod are also made as private playlists in your Spotify
+    # account (when logged in to Spotify).
+    otg_to_spotify: bool = True
     # Lossless songs the iPod can't play (FLAC and others) are converted while syncing, to
     # "alac" (Apple Lossless: same sound, bigger) or "aac" (256 kbps: about a fifth of the size).
     lossless_to: str = "alac"
@@ -88,6 +96,7 @@ SETTING_HELP = {
     "cookies_from_browser": "safari, chrome, firefox, brave, edge... or empty to turn off",
     "spotify_client_id": "Client ID of your Spotify developer app (set by 'synclassic login')",
     "download_pause": "Seconds to wait between downloads",
+    "parallel_downloads": "How many songs download at once: 1, 2 or 3",
     "full_playlist_reader": "on/off: read public playlists over 100 songs from Spotify's web page",
     "folder_layout": "artist (Artist/Album/Song) or playlist (one folder per playlist)",
     "sound_check": "on/off: measure loudness so the iPod's Sound Check evens out volume",
@@ -97,6 +106,8 @@ SETTING_HELP = {
     "sync_on_connect": "on/off: Update & Sync by itself when the iPod is plugged in (app open)",
     "music_videos": "on/off: also get official music videos, converted for the iPod",
     "sync_sound": "on/off: a chime when a sync finishes",
+    "lastfm_love": "on/off: love songs on Last.fm that you rate 5 stars on the iPod",
+    "otg_to_spotify": "on/off: make the iPod's On-The-Go playlists in your Spotify account too (needs Spotify login)",
     "store_country": "country of Apple's catalogue in Find Music (e.g. PH, GB, JP); empty = this Mac's region",
     "lossless_to": "alac or aac: what FLAC (and other lossless files the iPod can't play) become when synced",
 }
@@ -147,6 +158,11 @@ def set_setting(settings: Settings, key: str, value: str) -> None:
             raise ValueError("download_pause can't be negative")
         setattr(settings, key, number)
         return
+    elif key == "parallel_downloads":
+        if value not in ("1", "2", "3"):
+            raise ValueError("parallel_downloads must be 1, 2 or 3")
+        settings.parallel_downloads = int(value)
+        return
     elif key == "lossless_to":
         value = value.lower()
         if value not in ("alac", "aac"):
@@ -155,7 +171,8 @@ def set_setting(settings: Settings, key: str, value: str) -> None:
         value = value.lower()
         if value not in ("artist", "playlist"):
             raise ValueError("folder_layout must be artist or playlist")
-    elif key in ("full_playlist_reader", "sound_check", "lyrics", "song_info", "skip_on_ipod", "sync_on_connect", "music_videos", "sync_sound"):
+    elif key in ("full_playlist_reader", "sound_check", "lyrics", "song_info", "skip_on_ipod", "sync_on_connect", "music_videos", "sync_sound",
+                 "lastfm_love", "otg_to_spotify"):
         lowered = value.lower()
         if lowered not in ("on", "off", "true", "false", "yes", "no", "1", "0"):
             raise ValueError(f"{key} must be on or off")

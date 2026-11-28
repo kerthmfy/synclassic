@@ -202,3 +202,51 @@ def test_now_playing_is_sent_signed():
     client = lastfm.Client(KEY, SECRET, "SESSION", session=Server())
     client.now_playing("Artist", "Song", "Album", "", 200)
     assert sent[0]["track"] == "Song" and sent[0]["sk"] == "SESSION" and sent[0]["duration"] == "200"
+
+
+def test_five_stars_on_the_ipod_loves_the_song_on_lastfm(tmp_path):
+    from synclassic import config
+    from synclassic.ipod import sync
+    from synclassic.ipod.device import ipod_at
+    from synclassic.library import Library
+    from tests.test_ipod_read import fake_ipod, load
+
+    db = itunesdb.parse(load("captured-album-index-36.b64"))
+    songs = itunesdb.songs(db)
+    songs[5].chunk.set_u8(itunesdb.MHIT_RATING, 100)  # already 5 stars before this sync
+    ipod = ipod_at(fake_ipod(tmp_path, itunesdb.serialize(db)))
+    ratings = {3: 100, 4: 60, 5: 40}  # 3 gets 5 stars, 4 gets 3 stars, 5 goes down from 5 stars
+    entries = [struct.pack("<IIIIIII", 0, 0, 0, ratings.get(i, 0xFFFFFFFF), 0, 0, 0) for i in range(len(songs))]
+    (ipod.control / "iTunes" / "Play Counts").write_bytes(
+        b"mhdp" + struct.pack("<III", 0x60, 0x1C, len(entries)) + bytes(0x60 - 16) + b"".join(entries))
+    messages = []
+    library = Library(config.app_dir() / "library.db")
+    sync.apply_plan(library, sync.make_plan(library, ipod), messages.append)
+    assert [(x["track"], x["love"]) for x in scrobble.load_loves()] == [(songs[3].title, True), (songs[5].title, False)]
+    assert any("2 rating changes saved for Last.fm" in m for m in messages) and scrobble.waiting() == 2
+
+    class Server(FakeLastfm):
+        def __init__(self, offline=False):
+            super().__init__()
+            self.offline, self.calls = offline, []
+
+        def _answer(self, params):
+            if params["method"] in ("track.love", "track.unlove"):
+                self._check(dict(params))
+                if self.offline:
+                    return SimpleNamespace(status_code=503, json=lambda: {"error": 16, "message": "try later"})
+                self.calls.append((params["method"], params["track"]))
+                return SimpleNamespace(status_code=200, json=lambda: {})
+            return super()._answer(params)
+
+    with pytest.raises(lastfm.LastfmError):
+        scrobble.submit(lastfm.Client(KEY, SECRET, "SESSION", session=Server(offline=True)))
+    assert scrobble.waiting() == 2  # kept for next time
+    server = Server()
+    result = scrobble.submit(lastfm.Client(KEY, SECRET, "SESSION", session=server))
+    assert server.calls == [("track.love", songs[3].title), ("track.unlove", songs[5].title)]
+    assert (result.loved, result.unloved, scrobble.waiting()) == (1, 1, 0)
+    assert "loved 1 song (5 stars)" in result.describe()
+
+    config.save_settings(config.Settings(lastfm_love=False))  # turned off: ratings stay on the iPod only
+    assert scrobble.capture_loves(itunesdb.songs(db), [playcounts.PlayCount(rating=100)] * 3) == 0

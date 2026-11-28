@@ -214,9 +214,11 @@ class EditSession:
             raise
 
     def _commit(self) -> None:
+        self.otg_named = []
         for number, ids in enumerate(self.otg, start=1):
             name = f"On-The-Go {datetime.date.today():%Y-%m-%d}" + (f" ({number})" if len(self.otg) > 1 else "")
             self.create(name, ids)
+            self.otg_named.append((name, ids))
         self.editor.finish()
         links = []
         art_path = self.ipod.control / "Artwork" / "ArtworkDB"
@@ -246,6 +248,10 @@ class EditSession:
             self.counts_file.unlink()
         for otg in playcounts.otg_files(self.itunes):
             otg.unlink()
+        if getattr(self, "otg_named", None):
+            from synclassic.ipod.sync import _otg_to_spotify
+
+            _otg_to_spotify(None, self.db, self.state, self.otg_named, self.say)
         if self.deleted_dbids:
             self.state["tracks"] = {
                 k: v for k, v in self.state["tracks"].items() if int(v["dbid"], 16) not in self.deleted_dbids

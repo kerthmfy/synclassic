@@ -5,6 +5,9 @@ sync and when it was last played. Each play becomes one queued scrobble: the las
 last-played time, earlier ones spaced back by the song's length (the usual iPod-scrobbler
 method). The queue is saved on this computer, so plays are never lost when offline; it's filled
 whenever Synclassic reads the Play Counts file (every sync or change), before they're merged.
+
+Ratings: a song you rate 5 stars on the iPod is "loved" on Last.fm, and one you take down from
+5 stars is un-loved (setting lastfm_love). They wait in their own queue the same way.
 """
 
 from __future__ import annotations
@@ -83,8 +86,83 @@ def capture(songs: list[itunesdb.SongView], entries) -> int:
     return added
 
 
+def loves_file():
+    return app_dir() / "lastfm_loves.json"
+
+
+def load_loves() -> list[dict]:
+    try:
+        return json.loads(loves_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+
+
+def save_loves(loves: list[dict]) -> None:
+    path = loves_file()
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(loves, ensure_ascii=False, indent=0), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+FIVE_STARS = 100  # the iPod keeps ratings as stars × 20
+
+
+def capture_loves(songs: list[itunesdb.SongView], entries) -> int:
+    """Queue Last.fm loves/un-loves for ratings changed on the iPod (Play Counts entries, in
+    song-list order, read before they're merged). Returns how many were queued."""
+    from synclassic.config import load_settings
+
+    if not load_settings().lastfm_love:
+        return 0
+    loves = load_loves()
+    added = 0
+    for song, entry in zip(songs, entries):
+        if entry.rating is None or entry.rating > 100 or song.media_type not in (0, 1):
+            continue
+        if not song.artist or not song.title:
+            continue
+        before = song.chunk.u8(itunesdb.MHIT_RATING)
+        if entry.rating == before:
+            continue
+        if entry.rating == FIVE_STARS:
+            love = True
+        elif before == FIVE_STARS:
+            love = False
+        else:
+            continue
+        loves = [x for x in loves if (x["artist"], x["track"]) != (song.artist, song.title)]  # the latest wins
+        loves.append({"artist": song.artist, "track": song.title, "love": love, "dbid": f"{song.dbid:016x}"})
+        added += 1
+    if added:
+        save_loves(loves)
+    return added
+
+
 def waiting() -> int:
-    return len(load_queue())
+    """Plays and loves waiting to be sent."""
+    return len(load_queue()) + len(load_loves())
+
+
+def _send_loves(client, result) -> None:
+    from synclassic import lastfm
+
+    loves = load_loves()
+    keep = []
+    for number, love in enumerate(loves):
+        try:
+            client.love(love["artist"], love["track"], love["love"])
+            if love["love"]:
+                result.loved += 1
+            else:
+                result.unloved += 1
+        except lastfm.LastfmError as error:
+            if error.code in (6, 7):  # Last.fm doesn't know the song: nothing more to do
+                result.ignored += 1
+                continue
+            keep.extend(loves[number:])
+            save_loves(keep)
+            raise
+    save_loves(keep)
 
 
 def submit(client=None, now: float | None = None):
@@ -120,7 +198,9 @@ def submit(client=None, now: float | None = None):
             result.ignored += 1
             result.reasons[reason] = result.reasons.get(reason, 0) + 1
     save_queue(keep)
-    result.left = len(keep)
+    if load_loves():
+        _send_loves(client, result)
+    result.left = waiting()
     return result
 
 

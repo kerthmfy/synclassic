@@ -38,13 +38,21 @@ class SpotifyClient:
         return cls(token) if token else None
 
     def get(self, path: str, params: dict | None = None) -> dict:
+        return self._request("GET", path, params=params)
+
+    def post(self, path: str, body: dict) -> dict:
+        return self._request("POST", path, body=body)
+
+    def _request(self, method: str, path: str, params: dict | None = None, body: dict | None = None) -> dict:
         url = path if path.startswith("https://") else API + path
         for attempt in range(5):
             if time.time() >= self.token.get("expires_at", 0):
                 self.token = spotify_auth.refresh(self.token)
-            response = self.http.get(
-                url, params=params, headers={"Authorization": f"Bearer {self.token['access_token']}"}, timeout=30
-            )
+            headers = {"Authorization": f"Bearer {self.token['access_token']}"}
+            if method == "GET":
+                response = self.http.get(url, params=params, headers=headers, timeout=30)
+            else:
+                response = self.http.post(url, json=body, headers=headers, timeout=30)
             if response.status_code == 401 and attempt == 0:
                 self.token = spotify_auth.refresh(self.token)
                 continue
@@ -57,9 +65,12 @@ class SpotifyClient:
             if response.status_code >= 500 and attempt < 4:
                 time.sleep(2 * (attempt + 1))
                 continue
-            if response.status_code != 200:
+            if response.status_code not in (200, 201):
                 raise SpotifyApiError(f"Spotify API {response.status_code}: {_error_message(response)}", response.status_code)
-            return response.json()
+            try:
+                return response.json()
+            except ValueError:
+                return {}
         raise SpotifyApiError("Spotify API kept failing; try again later.")
 
     def _pages(self, path: str, params: dict | None = None) -> Iterator[dict]:
@@ -72,6 +83,48 @@ class SpotifyClient:
 
     def me(self) -> dict:
         return self.get("/me")
+
+    # --- making playlists (On-The-Go playlists from the iPod) -------------------------------------
+
+    def create_playlist(self, name: str, description: str = "") -> str:
+        """A new private playlist in your account. Returns its id."""
+        body = {"name": name, "description": description, "public": False}
+        try:
+            made = self.post("/me/playlists", body)
+        except SpotifyApiError as error:
+            if error.status not in (403, 404, 405):
+                raise
+            made = self.post(f"/users/{self.me()['id']}/playlists", body)  # the older address
+        return made["id"]
+
+    def add_to_playlist(self, playlist_id: str, uris: list[str]) -> None:
+        for start in range(0, len(uris), 100):
+            batch = {"uris": uris[start:start + 100]}
+            try:
+                self.post(f"/playlists/{playlist_id}/items", batch)
+            except SpotifyApiError as error:
+                if error.status not in (404, 405):
+                    raise
+                self.post(f"/playlists/{playlist_id}/tracks", batch)  # the older address
+
+    def find_track(self, artist: str, title: str, duration_ms: int | None = None) -> str | None:
+        """The Spotify id of this song (same artist and title, length within 5 s), or None."""
+        from synclassic.textnorm import core_title, normalize, split_artists
+
+        first_artist = (split_artists(artist) or [artist])[0]
+        query = f"track:{title} artist:{first_artist}"
+        found = self.get("/search", {"q": query, "type": "track", "limit": 10})
+        wanted_title, wanted_artist = core_title(title), normalize(first_artist)
+        best = None
+        for song in (found.get("tracks") or {}).get("items") or []:
+            if not song or core_title(song.get("name", "")) != wanted_title:
+                continue
+            if wanted_artist not in {normalize(a.get("name", "")) for a in song.get("artists") or []}:
+                continue
+            difference = abs((song.get("duration_ms") or 0) - duration_ms) if duration_ms else 0
+            if difference <= 5000 and (best is None or difference < best[0]):
+                best = (difference, song["id"])
+        return best[1] if best else None
 
     def my_playlists(self) -> list[dict]:
         """Playlists the user owns or follows: id, name, owner, total, collaborative."""

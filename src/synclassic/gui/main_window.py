@@ -1401,7 +1401,7 @@ class MainWindow(QMainWindow):
         except OSError:
             count = 0
         self.scrobble_button.setText(f"Scrobble Now ({count})" if count else "Scrobble Now")
-        self.scrobble_action.setText(f"Scrobble to Last.fm ({count} plays)" if count else "Scrobble to Last.fm")
+        self.scrobble_action.setText(f"Scrobble to Last.fm ({count} waiting)" if count else "Scrobble to Last.fm")
 
     def scrobble_now(self, quiet: bool = False) -> None:
         """Send waiting plays to Last.fm. quiet=True (after a sync): no dialogs, LCD message only."""
@@ -1419,16 +1419,26 @@ class MainWindow(QMainWindow):
             return
 
         def done(result):
-            parts = [f"Scrobbled {result.accepted} play{'s' if result.accepted != 1 else ''} to Last.fm"]
-            if result.ignored:
-                parts.append(f"{result.ignored} not accepted")
-            if result.too_old:
-                parts.append(f"{result.too_old} too old (over 2 weeks)")
-            message = ", ".join(parts)
+            message = result.describe()
             self.say(message + "".join(f"\n    {n} × {reason}" for reason, n in (result.reasons or {}).items()))
             QTimer.singleShot(0, lambda: (self.status_label.setText(message), self._update_scrobble_count()))
 
         self._run_job("Scrobbling to Last.fm…", lambda task: scrobble.submit(), done, verb="Scrobbling")
+
+    def _send_otg_to_spotify(self) -> None:
+        """Make the iPod's On-The-Go playlists on Spotify (in the background; they wait if it fails)."""
+        from synclassic import otg_spotify
+
+        try:
+            if not otg_spotify.waiting():
+                return
+        except OSError:
+            return
+
+        def failed(error):
+            self.say(f"Spotify: {error} (the On-The-Go playlists wait for next time)")
+
+        run_in_background(self, lambda task: otg_spotify.send(), lambda result: self.say(result.describe()), failed)
 
     def _focused_ipod_table(self):
         focus = QApplication.focusWidget()
@@ -2741,6 +2751,7 @@ class MainWindow(QMainWindow):
                 play_chime()
             if load_settings().scrobble_after_sync:
                 QTimer.singleShot(50, lambda: self.scrobble_now(quiet=True))
+            QTimer.singleShot(100, self._send_otg_to_spotify)
             answer = QMessageBox.question(self, "Sync complete", "Your iPod is synced. Eject it now?")
             if answer == QMessageBox.StandardButton.Yes:
                 QTimer.singleShot(0, self.eject_ipod)

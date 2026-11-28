@@ -623,9 +623,16 @@ def cmd_ipod(args) -> int:
     if load_settings().scrobble_after_sync and lastfm.connected_user() and scrobble.waiting():
         try:
             result = scrobble.submit()
-            say(f"Scrobbled {result.accepted} plays to Last.fm.")
+            say(result.describe() + ".")
         except lastfm.LastfmError as error:
             say(f"Last.fm: {error} (the plays are kept for next time)")
+    from synclassic import otg_spotify
+
+    if otg_spotify.waiting():
+        try:
+            say(otg_spotify.send().describe())
+        except Exception as error:  # offline, or the login needs renewing: they wait for next time
+            say(f"Spotify: {error} (the On-The-Go playlists wait for next time)")
     if args.eject:
         say(ipod_sync.eject(ipod))
     else:
@@ -798,14 +805,14 @@ def cmd_lastfm(args) -> int:
         return 0
     if args.action == "status":
         user = lastfm.connected_user()
-        say(f"Last.fm: {'connected as ' + user if user else 'not connected'}; {scrobble.waiting()} plays waiting.")
+        say(f"Last.fm: {'connected as ' + user if user else 'not connected'}; {scrobble.waiting()} plays and loves waiting.")
         return 0
     try:
         result = scrobble.submit()
     except lastfm.LastfmError as error:
         say(f"{error} (the plays are kept for next time)")
         return 1
-    say(f"Scrobbled {result.accepted} plays; {result.ignored} not accepted; {result.too_old} too old; {result.left} waiting.")
+    say(f"{result.describe()}; {result.left} waiting.")
     return 0
 
 

@@ -167,6 +167,12 @@ class Client:
             params["duration"] = str(duration_s)
         self.call("track.updateNowPlaying", params, post=True)
 
+    def love(self, artist: str, track: str, love: bool = True) -> None:
+        """Love (or un-love) a song on your Last.fm profile."""
+        if not self.session_key:
+            raise LastfmError("Connect to Last.fm first (Settings).")
+        self.call("track.love" if love else "track.unlove", {"artist": artist, "track": track}, post=True)
+
     def scrobble(self, plays: list[dict]) -> tuple[int, list[tuple[dict, str]]]:
         """Send plays (max 50). Returns (accepted, [(play, reason it was ignored)])."""
         if not self.session_key:
@@ -225,3 +231,17 @@ class ScrobbleResult:
     too_old: int = 0
     left: int = 0
     reasons: dict[str, int] | None = None
+    loved: int = 0
+    unloved: int = 0
+
+    def describe(self) -> str:
+        parts = [f"Scrobbled {self.accepted} play{'s' if self.accepted != 1 else ''} to Last.fm"]
+        if self.loved:
+            parts.append(f"loved {self.loved} song{'s' if self.loved != 1 else ''} (5 stars)")
+        if self.unloved:
+            parts.append(f"un-loved {self.unloved}")
+        if self.ignored:
+            parts.append(f"{self.ignored} not accepted")
+        if self.too_old:
+            parts.append(f"{self.too_old} too old (over 2 weeks)")
+        return ", ".join(parts)

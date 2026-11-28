@@ -322,6 +322,14 @@ the first change of each session.
   with "Scrobble automatically after each sync" they're sent right after syncing. Each play
   counts; plays older than 2 weeks and songs under 30 seconds are rejected by Last.fm.
   Terminal: `synclassic lastfm login`, `synclassic lastfm scrobble`.
+- **5 stars = loved**: a song you rate 5 stars on the iPod (hold the centre button while it
+  plays) is loved on Last.fm at the next sync; lowering a 5-star rating un-loves it. They wait
+  with the plays when you're offline. Turn off in Settings → Last.fm.
+- **On-The-Go → Spotify**: On-The-Go playlists you make on the iPod become iPod playlists at the
+  next sync and, when you're logged in to Spotify, private playlists in your Spotify account with
+  the same songs. Songs Synclassic got from Spotify are added exactly; others are looked up by
+  artist, title and length. If you logged in to Spotify before this existed, log in once more so
+  Synclassic may make playlists. Turn off in Settings → Spotify.
 - **Technical Details** on the iPod page: serial number, database, artwork, leftovers, missing
   files, plays not yet saved, last sync, backups.
 
@@ -435,6 +443,10 @@ synclassic config
 | `music_dir` | `~/Music/Synclassic` | |
 | `cookies_from_browser` | off | e.g. `safari`: YouTube Music Premium members get 256 kbps AAC |
 | `download_pause` | `2` | seconds between downloads |
+| `parallel_downloads` | `2` | songs downloading at once (1–3; more is faster, but YouTube may slow down quick downloads) |
+| `lossless_to` | `alac` | what FLAC becomes on the iPod: `alac` (Apple Lossless) or `aac` (256 kbps) |
+| `lastfm_love` | `on` | love songs on Last.fm that you rate 5 stars on the iPod |
+| `otg_to_spotify` | `on` | make the iPod's On-The-Go playlists in your Spotify account too |
 | `full_playlist_reader` | `on` | read public playlists over 100 songs from Spotify's web page |
 | `folder_layout` | `artist` | `artist` (Artist/Album/Song) or `playlist` (one folder per playlist) |
 

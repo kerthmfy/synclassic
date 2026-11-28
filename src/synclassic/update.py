@@ -327,35 +327,102 @@ def download_missing(
         report.stopped_early = "\n".join(problems)
         return report
 
-    failures_in_a_row = 0
-    for number, item in enumerate(work, start=1):
-        if should_stop and should_stop():
-            report.stopped_early = "Stopped. Update again to continue where you left off."
-            break
-        if progress:
-            progress(number, len(work), item)
-        say(f"[{number}/{len(work)}] {item.track.display()}")
-        status = process_track(library, item, settings, matcher, say)
-        if status == "downloaded":
-            report.downloaded += 1
-        elif status == "review":
-            report.review += 1
-        elif status == "unmatched":
-            report.unmatched += 1
-        else:
-            report.failed += 1
-        failures_in_a_row = failures_in_a_row + 1 if status == "failed" else 0
-        if failures_in_a_row >= 5:
-            report.stopped_early = (
-                "Stopped after 5 failures in a row. YouTube may be rate-limiting; try again later "
-                "with 'synclassic update --retry-failed'."
-            )
-            break
-        if number < len(work) and status in ("downloaded", "review", "failed"):
-            _pause(settings.download_pause, should_stop)
+    workers = max(1, min(MAX_PARALLEL, int(getattr(settings, "parallel_downloads", 1) or 1)))
+    if workers > 1 and len(work) > 1:
+        _download_in_parallel(library, work, settings, say, matcher, report, workers, progress, should_stop)
+    else:
+        failures_in_a_row = 0
+        for number, item in enumerate(work, start=1):
+            if should_stop and should_stop():
+                report.stopped_early = STOPPED
+                break
+            if progress:
+                progress(number, len(work), item)
+            say(f"[{number}/{len(work)}] {item.track.display()}")
+            status = process_track(library, item, settings, matcher, say)
+            _count(report, status)
+            failures_in_a_row = failures_in_a_row + 1 if status == "failed" else 0
+            if failures_in_a_row >= 5:
+                report.stopped_early = TOO_MANY_FAILURES
+                break
+            if number < len(work) and status in ("downloaded", "review", "failed"):
+                _pause(settings.download_pause, should_stop)
     if progress and work:
         progress(len(work) + 1, len(work), work[-1])
     return report
+
+
+MAX_PARALLEL = 3
+STOPPED = "Stopped. Update again to continue where you left off."
+TOO_MANY_FAILURES = ("Stopped after 5 failures in a row. YouTube may be rate-limiting; try again later "
+                     "with 'synclassic update --retry-failed'.")
+
+
+def _count(report: DownloadReport, status: str) -> None:
+    if status == "downloaded":
+        report.downloaded += 1
+    elif status == "review":
+        report.review += 1
+    elif status == "unmatched":
+        report.unmatched += 1
+    else:
+        report.failed += 1
+
+
+def _download_in_parallel(library: Library, work: list[LibraryTrack], settings: Settings, say: Say, matcher,
+                          report: DownloadReport, workers: int, progress, should_stop) -> None:
+    """A few songs at a time (setting parallel_downloads). Each worker has its own connection to
+    the library; each pauses between its own songs as usual."""
+    import threading
+
+    lock = threading.Lock()
+    songs = iter(enumerate(work, start=1))
+    streak = [0]
+    problems: list[BaseException] = []
+
+    def stop_now() -> bool:
+        return bool(report.stopped_early) or bool(should_stop and should_stop())
+
+    def worker() -> None:
+        own = Library(library.path)
+        try:
+            while True:
+                with lock:
+                    if stop_now():
+                        if should_stop and should_stop() and not report.stopped_early:
+                            report.stopped_early = STOPPED
+                        return
+                    try:
+                        number, item = next(songs)
+                    except StopIteration:
+                        return
+                if progress:
+                    progress(number, len(work), item)
+                say(f"[{number}/{len(work)}] {item.track.display()}")
+                current = own.track(item.id) or item
+                status = process_track(own, current, settings, matcher, say)
+                with lock:
+                    _count(report, status)
+                    streak[0] = streak[0] + 1 if status == "failed" else 0
+                    if streak[0] >= 5 and not report.stopped_early:
+                        report.stopped_early = TOO_MANY_FAILURES
+                if status in ("downloaded", "review", "failed"):
+                    _pause(settings.download_pause, stop_now)
+        except BaseException as error:  # raised once all workers are done (the others stop first)
+            with lock:
+                problems.append(error)
+                report.stopped_early = report.stopped_early or STOPPED
+        finally:
+            own.close()
+
+    threads = [threading.Thread(target=worker, name=f"download-{n}", daemon=True) for n in range(workers)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    if problems:
+        report.stopped_early = "" if report.stopped_early == STOPPED else report.stopped_early
+        raise problems[0]
 
 
 def _pause(seconds: float, should_stop: Callable[[], bool] | None) -> None:

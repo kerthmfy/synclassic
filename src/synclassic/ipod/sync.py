@@ -732,8 +732,11 @@ def apply_plan(
         editor.set_playlist_songs(pid, entries)
         state["playlists"][playlist_key(planned.library)] = {"id": f"{pid:016x}", "name": planned.library.name}
         say(f"Playlist “{planned.library.name}”: {len(entries)} songs")
+    otg_named: list[tuple[str, list[int]]] = []
     for number, ids in enumerate(otg_playlists, start=1):
-        pid = editor.create_playlist(f"On-The-Go {datetime.date.today():%Y-%m-%d}" + (f" ({number})" if len(otg_playlists) > 1 else ""))
+        otg_name = f"On-The-Go {datetime.date.today():%Y-%m-%d}" + (f" ({number})" if len(otg_playlists) > 1 else "")
+        otg_named.append((otg_name, ids))
+        pid = editor.create_playlist(otg_name)
         dbid_by_id = {s.id: s.dbid for s in itunesdb.songs(db)}
         editor.set_playlist_songs(pid, [(i, dbid_by_id[i]) for i in ids if i in dbid_by_id])
     for key, _, _ in plan.remove_playlists:
@@ -778,6 +781,8 @@ def apply_plan(
         counts_file.unlink()
     for otg in playcounts.otg_files(itunes):
         otg.unlink()
+    if otg_named:
+        _otg_to_spotify(library, db, state, otg_named, say)
     for key, dbid in plan.reuse.items():
         previous = state["tracks"].get(key, {})
         state["tracks"][key] = {"dbid": f"{dbid:016x}", "added": bool(previous.get("added") and int(previous["dbid"], 16) == dbid)}
@@ -835,17 +840,42 @@ def _add_artwork(ipod: IPod, db: itunesdb.Chunk, plan: Plan, new_dbids: dict[str
         say(f"Album art was skipped this time ({error}); the music sync continues.")
 
 
+def _otg_to_spotify(library, db: itunesdb.Chunk, state: dict, playlists: list[tuple[str, list[int]]], say: Say) -> None:
+    """Queue On-The-Go playlists for Spotify (when that's on), with the Spotify ids Synclassic knows."""
+    from synclassic import otg_spotify
+
+    try:
+        if not otg_spotify.wanted():
+            return
+        by_id = {s.id: s for s in itunesdb.songs(db)}
+        spotify_ids: dict[int, str] = {}
+        if library is not None:
+            items = {item.key: item for item in library.tracks_in_playlists()}
+            for key, entry in state["tracks"].items():
+                item = items.get(key)
+                if item is not None and item.track.spotify_id:
+                    spotify_ids[int(entry["dbid"], 16)] = item.track.spotify_id
+        for name, ids in playlists:
+            if otg_spotify.capture(name, [by_id[i] for i in ids if i in by_id], spotify_ids):
+                say(f"“{name}” will be made on Spotify too.")
+    except OSError as error:
+        say(f"(Couldn't keep the On-The-Go playlists for Spotify: {error})")
+
+
 def _queue_scrobbles(db: itunesdb.Chunk, entries, say: Say) -> None:
     """Keep the plays for Last.fm before they're merged (the Play Counts file is deleted after)."""
     from synclassic import scrobble
 
     try:
         added = scrobble.capture(itunesdb.songs(db), entries)
+        loves = scrobble.capture_loves(itunesdb.songs(db), entries)
     except OSError as error:
         say(f"(Couldn't save plays for Last.fm: {error})")
         return
     if added:
         say(f"{added} plays saved for scrobbling to Last.fm.")
+    if loves:
+        say(f"{loves} rating change{'s' if loves != 1 else ''} saved for Last.fm (5 stars = loved).")
 
 
 @dataclass

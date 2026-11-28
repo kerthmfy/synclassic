@@ -71,7 +71,7 @@ def test_full_flow(tmp_path, fake_youtube):
     apply_source(library, playlist, source)
     report = download_missing(library, settings, lambda s: None, matcher=Matcher(search))
     assert (report.downloaded, report.unmatched) == (2, 1)
-    assert fake_youtube == ["onemoretime", "karmapolice"]  # the live version was not chosen
+    assert sorted(fake_youtube) == ["karmapolice", "onemoretime"]  # the live version was not chosen (any order: 2 at once)
 
     items = library.playlist_tracks(playlist)
     first = items[0]
