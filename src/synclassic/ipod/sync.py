@@ -137,6 +137,7 @@ class Plan:
     podcasts: podcast_sync.PodcastPlan = field(default_factory=podcast_sync.PodcastPlan)
     videos: list[tuple[str, LibraryTrack, pathlib.Path]] = field(default_factory=list)  # music videos to copy
     remove_videos: list[tuple[str, itunesdb.SongView]] = field(default_factory=list)
+    details: list = field(default_factory=list)  # (song id, {field: value}): details you changed in Synclassic
     convert: dict = field(default_factory=dict)  # library key -> convert.Target (converted while copying)
     chosen_only: bool = False  # only the playlists ticked for this iPod
     bitrate: int = 0  # this iPod's chosen size for new songs (0 = as they are)
@@ -147,7 +148,7 @@ class Plan:
             self.copy or self.remove_songs or self.remove_playlists or self.play_counts_pending
             or any(not p.unchanged and p.action != "wait" for p in self.playlists)
             or (self.artwork_ok and bool(self.art_backfill)) or self.podcasts.has_changes or bool(self.soundcheck)
-            or bool(self.videos) or bool(self.remove_videos)
+            or bool(self.videos) or bool(self.remove_videos) or bool(self.details)
         )
 
     @property
@@ -211,6 +212,9 @@ class Plan:
             lines.append(f"  Add album art for up to {art} songs" + (f" ({len(self.art_backfill)} added earlier without art)" if self.art_backfill else ""))
         elif art:
             lines.append("  ⚠ Album art can't be added on this iPod (its artwork database couldn't be read safely)")
+        if self.details:
+            lines.append(f"  Update the details of {len(self.details)} song{'s' if len(self.details) != 1 else ''} "
+                         "you changed in Synclassic")
         if self.soundcheck:
             lines.append(f"  Sound Check for {len(self.soundcheck)} songs already on the iPod")
         if self.to_measure:
@@ -266,6 +270,31 @@ class Plan:
         hints.append("Or choose fewer playlists for this iPod (iPod page → Choose Playlists…, "
                      "or synclassic ipod playlists).")
         return hints
+
+
+def _changed_details(library: Library, wanted: dict[str, LibraryTrack], reuse: dict[str, int],
+                     by_dbid: dict[int, itunesdb.SongView]) -> list[tuple[int, dict]]:
+    """Songs on the iPod whose details you changed in Synclassic (Get Info) and that differ there."""
+    edited = {row["track_id"] for row in library.db.execute("SELECT track_id FROM track_edits")}
+    if not edited:
+        return []
+    out = []
+    for key, dbid in reuse.items():
+        item, song = wanted.get(key), by_dbid.get(dbid)
+        if item is None or song is None or item.id not in edited:
+            continue
+        track = item.track
+        now = {"title": track.title, "artist": track.artist, "album": track.album or "",
+               "album_artist": track.album_artist or track.primary_artist, "genre": track.genre or "",
+               "year": int(track.year) if track.year.isdigit() else 0,
+               "track_number": track.track_number or 0, "disc_number": track.disc_number or 0}
+        there = {"title": song.title, "artist": song.artist, "album": song.album, "album_artist": song.album_artist,
+                 "genre": getattr(song, "genre", ""), "year": song.chunk.u32(0x34),
+                 "track_number": song.chunk.u32(0x2C), "disc_number": song.chunk.u32(0x5C)}
+        changes = {name: now[name] for name in library.edits(item.id) if name in now and now[name] != there[name]}
+        if changes:
+            out.append((song.id, changes))
+    return out
 
 
 def _match_key(artist: str, title: str) -> tuple[str, str]:
@@ -360,6 +389,7 @@ def make_plan(library: Library, ipod: IPod, db: itunesdb.Chunk | None = None) ->
 
     copying = {item.key for item in plan.copy}
     on_ipod = set(plan.reuse) | copying
+    plan.details = _changed_details(library, wanted, plan.reuse, by_dbid)
 
     existing = {p.chunk.u64(0x1C): p for p in itunesdb.playlists(db, 2) if not p.is_master}
     owned_ids = {int(v["id"], 16) for v in state["playlists"].values()}
@@ -770,6 +800,11 @@ def apply_plan(
         editor.set_playlist_songs(pid, [(i, dbid_by_id[i]) for i in ids if i in dbid_by_id])
     for key, _, _ in plan.remove_playlists:
         state["playlists"].pop(key, None)
+
+    for song_id, changes in plan.details:  # details you changed in Synclassic
+        editor.update_song(song_id, changes)
+    if plan.details:
+        say(f"Updated the details of {len(plan.details)} songs on the iPod.")
 
     # 4. Remove songs nothing needs any more.
     removed = ({song.id for song in plan.remove_songs} | {song.id for song in plan.podcasts.remove}

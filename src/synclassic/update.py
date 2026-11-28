@@ -56,7 +56,7 @@ def keys_on_connected_ipod(library: Library, settings: Settings) -> set[str] | N
 def refresh_playlist(
     library: Library, playlist: LibraryPlaylist, client: SpotifyClient | None, full_reader: FullReader | None = None
 ) -> RefreshReport:
-    if playlist.spec.kind == "store-songs":  # songs you picked one by one: nothing to check
+    if playlist.spec.kind in ("store-songs", "mine"):  # songs you picked one by one: nothing to check
         report = RefreshReport(playlist.name)
         report.total = len(library.playlist_track_ids(playlist))
         return report
@@ -71,7 +71,7 @@ def apply_source(library: Library, playlist: LibraryPlaylist, source: SourcePlay
     """Store the playlist's current songs (in source order) and report what changed."""
     report = RefreshReport(playlist.name)
     before = library.playlist_track_ids(playlist)
-    ids = [library.upsert_track(track) for track in source.tracks]
+    ids = library.with_your_changes(playlist, [library.upsert_track(track) for track in source.tracks])
     library.set_playlist_tracks(playlist, ids, source.note)
     report.total = len(ids)
     report.note = source.note

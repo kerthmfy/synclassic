@@ -225,6 +225,8 @@ class MainWindow(QMainWindow):
         self.mini_action = action("Mini Player", lambda: self.show_mini_player(), QKeySequence("Ctrl+Shift+M"))
         self.log_action = action("Show Activity", self._toggle_log, QKeySequence("Ctrl+L"))
         self.log_action.setCheckable(True)
+        self.new_playlist_action = action("New Playlist…", lambda: self.new_playlist_from([]), QKeySequence("Ctrl+N"),
+                                          "A playlist of your own: add songs to it from any playlist (right-click)")
         self.karaoke_action = action("Lyrics", lambda: self._toggle_now_playing("lyrics"), QKeySequence("Ctrl+Shift+L"),
                                      "The playing song's lyrics, following along (karaoke)")
         self.karaoke_action.setCheckable(True)
@@ -235,7 +237,7 @@ class MainWindow(QMainWindow):
     def _build_menus(self) -> None:
         bar = self.menuBar()
         file_menu = bar.addMenu("File")
-        for act in (self.add_action, self.subscribe_action, None, self.update_action, self.podcasts_update_action, self.stop_action, None, self.folder_action,
+        for act in (self.add_action, self.new_playlist_action, self.subscribe_action, None, self.update_action, self.podcasts_update_action, self.stop_action, None, self.folder_action,
                     self.fix_art_action, self.lyrics_action, self.info_fill_action, None, self.settings_action):
             file_menu.addSeparator() if act is None else file_menu.addAction(act)
         ipod_menu = bar.addMenu("iPod")
@@ -1500,6 +1502,9 @@ class MainWindow(QMainWindow):
         from synclassic.ipod import manage
 
         table = table if table is not None and not isinstance(table, bool) else self._focused_ipod_table()
+        if table is None and self.stack.currentWidget() is self.table:  # Synclassic's own songs
+            self.library_get_info()
+            return
         if table is None or self.ipod_contents is None:
             return
         songs = [self.ipod_contents.songs[i] for i in table.selected_ids() if i in self.ipod_contents.songs]
@@ -2654,10 +2659,43 @@ class MainWindow(QMainWindow):
         own.setEnabled(len(ids) == 1)
         own.setToolTip("For a song YouTube doesn't have: use an audio file from your Mac")
         menu.addSeparator()
+        info = menu.addAction("Get Info…")
+        current = self._current_playlist()
+        others = [p for p in self.library.playlists() if current is None or p.id != current.id]
+        add_menu = menu.addMenu("Add to Playlist")
+        targets: dict = {}
+        for other in others:
+            targets[add_menu.addAction(other.name)] = ("add", other)
+        add_menu.addSeparator()
+        new_playlist = add_menu.addAction("New Playlist from Selection…")
+        move_menu = None
+        if current is not None:
+            move_menu = menu.addMenu("Move to Playlist")
+            move_menu.setToolTip(f"Take the songs out of “{current.name}” and put them in another playlist")
+            for other in others:
+                targets[move_menu.addAction(other.name)] = ("move", other)
+            move_menu.setEnabled(bool(others))
+        remove_from = menu.addAction(f"Remove from “{current.name}”") if current is not None else None
+        menu.addSeparator()
         reveal = menu.addAction("Show in Finder")
         item = self.library.track(ids[0])
         reveal.setEnabled(bool(item and item.has_file))
         chosen = menu.exec(self.table.viewport().mapToGlobal(position))
+        if chosen is None:
+            return
+        if chosen in targets:
+            how, target = targets[chosen]
+            self.put_in_playlist(ids, target, move_from=current if how == "move" else None)
+            return
+        if chosen == new_playlist:
+            self.new_playlist_from(ids)
+            return
+        if remove_from is not None and chosen == remove_from:
+            self.remove_from_playlist(ids, current)
+            return
+        if chosen == info:
+            self.library_get_info(ids)
+            return
         if chosen == pick:
             self.pick_selected()
         elif chosen == retry:
@@ -2671,6 +2709,87 @@ class MainWindow(QMainWindow):
             self.make_genius(item.track.artist, item.track.title)
         elif chosen == reveal and item and item.file_path:
             reveal_in_finder(pathlib.Path(item.file_path))
+
+    # --- your own changes to playlists and songs ---------------------------------------------
+
+    def put_in_playlist(self, ids: list[int], target, move_from=None) -> None:
+        """Add songs to a playlist (or move them there). Kept that way when the playlists are updated."""
+        added = self.library.add_to_playlist(target, ids)
+        moved = self.library.remove_from_playlist(move_from, ids) if move_from is not None else 0
+        finalize(self.library)
+        songs = f"{len(ids)} song{'s' if len(ids) != 1 else ''}"
+        if move_from is not None:
+            self.say(f"Moved {songs} from “{move_from.name}” to “{target.name}”.")
+        else:
+            self.say(f"Added {added} of {songs} to “{target.name}”" + (" (the rest were already there)." if added < len(ids) else "."))
+        self.status_label.setText(f"“{target.name}”: {added} added" + (f", {moved} moved out of “{move_from.name}”" if move_from else ""))
+        self.refresh()
+
+    def new_playlist_from(self, ids: list[int]) -> None:
+        name, ok = QInputDialog.getText(self, "New Playlist", "Name of the new playlist:", text="My Playlist")
+        if not ok or not name.strip():
+            return
+        playlist = self.library.new_playlist(name.strip(), ids)
+        finalize(self.library)
+        self.say(f"Made “{playlist.name}” with {len(ids)} song{'s' if len(ids) != 1 else ''}.")
+        self._pending_key = playlist.id
+        self.refresh()
+
+    def remove_from_playlist(self, ids: list[int], playlist) -> None:
+        removed = self.library.remove_from_playlist(playlist, ids)
+        finalize(self.library)
+        self.say(f"Took {removed} song{'s' if removed != 1 else ''} out of “{playlist.name}” (they stay out when it's "
+                 "updated; the files stay if another playlist has them).")
+        self.refresh()
+
+    def library_get_info(self, ids: list[int] | None = None) -> None:
+        """Change songs' details. They stay when playlists are updated, go into Synclassic's own files,
+        and onto the iPod at the next sync."""
+        from types import SimpleNamespace
+
+        from synclassic import tagging
+        from synclassic.gui.maintenance_dialogs import InfoDialog
+
+        ids = ids if ids is not None else self._selected_track_ids()
+        items = [i for i in (self.library.track(t) for t in ids) if i is not None]
+        if not items:
+            return
+        songs = []
+        for item in items:
+            track = item.track
+            songs.append(SimpleNamespace(
+                title=track.title, artist=track.artist, album=track.album or "",
+                album_artist=track.album_artist or "", genre=track.genre or "",
+                year=int(track.year) if track.year.isdigit() else 0,
+                track_number=track.track_number or 0, disc_number=track.disc_number or 0))
+        summary = None
+        if len(items) == 1:
+            item = items[0]
+            summary = [("Status", STATUS.get(status_of(item), item.status)),
+                       ("File", item.file_path or "none on this Mac"),
+                       ("From", item.track.spotify_id and f"Spotify ({item.track.spotify_id})" or "your file or playlist")]
+        dialog = InfoDialog(songs, self, summary_rows=summary,
+                            note="Your changes stay when the playlist is updated from Spotify, and go on the iPod at "
+                                 "the next sync. Files that are yours (music folders) aren't changed.")
+        if dialog.exec() != InfoDialog.DialogCode.Accepted:
+            return
+        changes = dialog.changes()
+        if not changes:
+            return
+        problems = []
+        for item in items:
+            track = self.library.edit_track(item.id, changes)
+            if track is not None and item.editable_file:
+                try:
+                    tagging.update_details(pathlib.Path(item.file_path), track)  # type: ignore[arg-type]
+                except Exception as error:  # the details are still saved in Synclassic
+                    problems.append(f"{item.track.display()}: {error}")
+        finalize(self.library)
+        self.say(f"Saved the details of {len(items)} song{'s' if len(items) != 1 else ''}"
+                 + (" (they go on the iPod at the next sync)." if self.ipod is not None else "."))
+        for problem in problems:
+            self.say(f"  couldn't change the file: {problem}")
+        self.refresh()
 
     def use_own_file(self, item) -> None:
         from PySide6.QtWidgets import QFileDialog

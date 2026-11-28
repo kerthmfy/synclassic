@@ -50,6 +50,19 @@ CREATE TABLE IF NOT EXISTS playlist_tracks (
     PRIMARY KEY (playlist_id, position)
 );
 CREATE INDEX IF NOT EXISTS playlist_tracks_track ON playlist_tracks(track_id);
+-- Songs you added to or took out of a playlist yourself: kept that way when it's updated.
+CREATE TABLE IF NOT EXISTS playlist_changes (
+    playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+    track_id INTEGER NOT NULL REFERENCES tracks(id),
+    change TEXT NOT NULL,          -- 'added' or 'removed'
+    at TEXT NOT NULL,
+    PRIMARY KEY (playlist_id, track_id)
+);
+-- Song details you changed (Get Info): they win over what the source says.
+CREATE TABLE IF NOT EXISTS track_edits (
+    track_id INTEGER PRIMARY KEY REFERENCES tracks(id),
+    data TEXT NOT NULL             -- {"title": ..., "album": ...} as JSON
+);
 -- Playlist-folder layout: where each song appears inside each playlist's folder.
 CREATE TABLE IF NOT EXISTS placements (
     track_id INTEGER NOT NULL,
@@ -179,6 +192,14 @@ class Library:
             )
         return self.playlist_by_name(name)  # type: ignore[return-value]
 
+    def new_playlist(self, name: str, track_ids: Iterable[int] = ()) -> LibraryPlaylist:
+        """A playlist of your own, made in Synclassic (Update leaves it as you make it)."""
+        import uuid
+
+        playlist = self.add_playlist(name, SourceSpec("mine", f"mine:{uuid.uuid4().hex}"))
+        self.add_to_playlist(playlist, track_ids)
+        return playlist
+
     def set_destination(self, playlist: LibraryPlaylist, destination: str) -> None:
         """Where this playlist's new songs go ("" = the setting, "mac", "both" or "ipod")."""
         with self.db:
@@ -193,6 +214,7 @@ class Library:
 
     def remove_playlist(self, playlist: LibraryPlaylist) -> None:
         with self.db:
+            self.db.execute("DELETE FROM playlist_changes WHERE playlist_id = ?", (playlist.id,))
             self.db.execute("DELETE FROM playlist_tracks WHERE playlist_id = ?", (playlist.id,))
             self.db.execute("DELETE FROM playlists WHERE id = ?", (playlist.id,))
 
@@ -204,6 +226,80 @@ class Library:
                 [(playlist.id, position, track_id) for position, track_id in enumerate(track_ids)],
             )
             self.db.execute("UPDATE playlists SET refreshed_at = ?, note = ? WHERE id = ?", (now(), note, playlist.id))
+
+    # --- songs you add to or take out of a playlist ------------------------------------------
+
+    def add_to_playlist(self, playlist: LibraryPlaylist, track_ids: Iterable[int]) -> int:
+        """Add songs at the end (kept there when the playlist is updated). Returns how many were added."""
+        current = self.playlist_track_ids(playlist)
+        new = [t for t in dict.fromkeys(track_ids) if t not in current]
+        with self.db:
+            for track_id in new:
+                self.db.execute("INSERT OR REPLACE INTO playlist_changes (playlist_id, track_id, change, at) "
+                                "VALUES (?, ?, 'added', ?)", (playlist.id, track_id, now()))
+            self.db.executemany("INSERT INTO playlist_tracks (playlist_id, position, track_id) VALUES (?, ?, ?)",
+                                [(playlist.id, len(current) + n, t) for n, t in enumerate(new)])
+        return len(new)
+
+    def remove_from_playlist(self, playlist: LibraryPlaylist, track_ids: Iterable[int]) -> int:
+        """Take songs out (they stay out when the playlist is updated). Returns how many were taken out."""
+        gone = set(track_ids)
+        current = self.playlist_track_ids(playlist)
+        if not gone.intersection(current):
+            return 0
+        with self.db:
+            for track_id in gone.intersection(current):
+                row = self.db.execute("SELECT change FROM playlist_changes WHERE playlist_id = ? AND track_id = ?",
+                                      (playlist.id, track_id)).fetchone()
+                if row and row["change"] == "added":  # you added it: just forget that
+                    self.db.execute("DELETE FROM playlist_changes WHERE playlist_id = ? AND track_id = ?",
+                                    (playlist.id, track_id))
+                else:
+                    self.db.execute("INSERT OR REPLACE INTO playlist_changes (playlist_id, track_id, change, at) "
+                                    "VALUES (?, ?, 'removed', ?)", (playlist.id, track_id, now()))
+            kept = [t for t in current if t not in gone]
+            self.db.execute("DELETE FROM playlist_tracks WHERE playlist_id = ?", (playlist.id,))
+            self.db.executemany("INSERT INTO playlist_tracks (playlist_id, position, track_id) VALUES (?, ?, ?)",
+                                [(playlist.id, n, t) for n, t in enumerate(kept)])
+        return len(gone.intersection(current))
+
+    def with_your_changes(self, playlist: LibraryPlaylist, track_ids: list[int]) -> list[int]:
+        """The source's songs, without the ones you took out, then the ones you added."""
+        rows = self.db.execute("SELECT track_id, change FROM playlist_changes WHERE playlist_id = ? ORDER BY at, rowid",
+                               (playlist.id,)).fetchall()
+        removed = {r["track_id"] for r in rows if r["change"] == "removed"}
+        ids = [t for t in track_ids if t not in removed]
+        present = set(ids)
+        for row in rows:
+            if row["change"] == "added" and row["track_id"] not in present:
+                ids.append(row["track_id"])
+                present.add(row["track_id"])
+        return ids
+
+    def your_changes(self, playlist: LibraryPlaylist) -> dict[int, str]:
+        rows = self.db.execute("SELECT track_id, change FROM playlist_changes WHERE playlist_id = ?",
+                               (playlist.id,)).fetchall()
+        return {r["track_id"]: r["change"] for r in rows}
+
+    # --- song details you changed ------------------------------------------------------------
+
+    def edits(self, track_id: int) -> dict:
+        row = self.db.execute("SELECT data FROM track_edits WHERE track_id = ?", (track_id,)).fetchone()
+        return json.loads(row["data"]) if row else {}
+
+    def edit_track(self, track_id: int, changes: dict) -> Track | None:
+        """Change a song's details (title, artist, album, album_artist, genre, year, track_number,
+        disc_number). They stay when the playlist is updated. Returns the song as it is now."""
+        item = self.track(track_id)
+        if item is None or not changes:
+            return item.track if item else None
+        edits = {**self.edits(track_id), **changes}
+        track = apply_edits(item.track, edits)
+        with self.db:
+            self.db.execute("INSERT OR REPLACE INTO track_edits (track_id, data) VALUES (?, ?)",
+                            (track_id, json.dumps(edits)))
+            self.db.execute("UPDATE tracks SET data = ? WHERE id = ?", (track_to_json(track), track_id))
+        return track
 
     def playlist_track_ids(self, playlist: LibraryPlaylist) -> list[int]:
         rows = self.db.execute(
@@ -244,7 +340,7 @@ class Library:
         row = self.db.execute("SELECT id, data FROM tracks WHERE key = ?", (key,)).fetchone()
         with self.db:
             if row:
-                merged = _merge(track_from_json(row["data"]), track)
+                merged = apply_edits(_merge(track_from_json(row["data"]), track), self.edits(row["id"]))
                 self.db.execute("UPDATE tracks SET data = ? WHERE id = ?", (track_to_json(merged), row["id"]))
                 return row["id"]
             status = "local" if track.local_path else "pending"
@@ -320,6 +416,28 @@ class Library:
             (playlist.id,),
         ).fetchall()
         return {r["status"]: r["n"] for r in rows}
+
+
+EDITABLE = ("title", "artist", "album", "album_artist", "genre", "year", "track_number", "disc_number")
+
+
+def apply_edits(track: Track, edits: dict) -> Track:
+    """The song with your changed details on top."""
+    if not edits:
+        return track
+    track = Track(**track.__dict__)
+    for name, value in edits.items():
+        if name == "artist":
+            artists = [part.strip() for part in str(value).split(", ") if part.strip()]
+            track.artists = artists or track.artists
+        elif name == "year":
+            track.release_date = str(value) if value else ""
+        elif name in ("track_number", "disc_number"):
+            setattr(track, name, int(value) if value else None)
+        elif name in ("title", "album", "album_artist", "genre"):
+            if name != "title" or str(value).strip():
+                setattr(track, name, str(value).strip())
+    return track
 
 
 def _merge(old: Track, new: Track) -> Track:

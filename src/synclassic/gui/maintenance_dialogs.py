@@ -35,7 +35,10 @@ def _size(size: int) -> str:
 class InfoDialog(QDialog):
     """iTunes' Get Info: edit one song, or several at once (only the fields you change are applied)."""
 
-    def __init__(self, songs: list[Song], parent=None):
+    def __init__(self, songs: list[Song], parent=None, summary_rows: list[tuple[str, str]] | None = None,
+                 note: str = ""):
+        """`songs`: iPod songs, or anything with the same details (Synclassic's own songs, with their
+        own `summary_rows`). `note`: a line under the fields."""
         super().__init__(parent)
         self.songs = songs
         many = len(songs) > 1
@@ -65,7 +68,21 @@ class InfoDialog(QDialog):
             self.fields[name] = edit
             form.addRow(label, edit)
         layout.addWidget(box)
-        if not many:
+        if note:
+            hint = QLabel(note)
+            hint.setWordWrap(True)
+            hint.setProperty("role", "dim")
+            layout.addWidget(hint)
+        if not many and summary_rows is not None:
+            details = QGroupBox("Summary")
+            summary = QFormLayout(details)
+            for label, value in summary_rows:
+                text = QLabel(value)
+                text.setWordWrap(True)
+                text.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+                summary.addRow(label, text)
+            layout.addWidget(details)
+        elif not many:
             song = songs[0]
             details = QGroupBox("Summary")
             summary = QFormLayout(details)

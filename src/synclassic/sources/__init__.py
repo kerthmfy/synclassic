@@ -46,6 +46,8 @@ class SourceSpec:
             return self.ref
         if self.kind == "folder":
             return f"Your music folder: {self.ref}"
+        if self.kind == "mine":
+            return "Your own playlist"
         return f"{self.ref}" + (f" [{self.selector}]" if self.selector else "")
 
 
@@ -105,6 +107,8 @@ def read_source(spec: SourceSpec, client: SpotifyClient | None, full_reader: Ful
                 return store.read_album(spec.ref, load_settings().store_country)
             except store.StoreError as error:
                 raise SourceError(str(error)) from error
+        if spec.kind == "mine":  # made in Synclassic: its songs are the ones you put in it
+            return SourcePlaylist(name="", tracks=[])
         if spec.kind == "folder":
             from synclassic.sources.folder import parse_folder
 

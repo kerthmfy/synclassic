@@ -96,6 +96,17 @@ synclassic add "~/Downloads/Road Trip.m3u8" ~/Downloads/export.csv
 | `.csv` export (Exportify, TuneMyMusic) | No | A file with several playlists becomes several playlists. |
 | A folder of your own music | No | `synclassic add ~/Music/CDs`: everything in it (subfolders too, FLAC included) as one playlist, in album order. Nothing is downloaded, and new files are picked up at each Update. |
 
+**Your own changes to playlists and songs.** Right-click songs in a playlist:
+
+- **Add to Playlist** / **Move to Playlist** / **Remove from "…"**: songs you add stay when the
+  playlist is updated from Spotify, and songs you take out stay out.
+- **New Playlist from Selection…** (or File → **New Playlist**, ⌘N): a playlist of your own,
+  which Update leaves exactly as you make it.
+- **Get Info…** (⌘I): change the title, artist, album, album artist, genre, year, track or disc
+  number of one song or several at once. Your details win over Spotify's at every update, go
+  into the song files Synclassic downloaded (your own files aren't changed), and onto the iPod
+  at the next sync.
+
 **Save to: this Mac, or straight to the iPod.** When you add a playlist (the Add window), Get a
 song or album in Find Music, or right-click a playlist → **Save New Songs To**, choose:
 

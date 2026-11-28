@@ -154,3 +154,45 @@ def update_info(path: pathlib.Path, genre: str = "", year: str = "") -> None:
         if year:
             tags.setall("TDRC", [TDRC(encoding=3, text=year)])
         tags.save(path, v2_version=3)
+
+
+def update_details(path: pathlib.Path, track: Track) -> None:
+    """Write a song's details (title, artist, album, album artist, genre, year, track and disc
+    number) into its file, leaving everything else inside (cover, lyrics…) as it is."""
+    suffix = path.suffix.lower()
+    album_artist = track.album_artist or track.primary_artist
+    if suffix in (".m4a", ".m4b", ".mp4", ".aac"):
+        from mutagen.mp4 import MP4
+
+        audio = MP4(path)
+        if audio.tags is None:
+            audio.add_tags()
+        tags = audio.tags
+        for key, value in (("\xa9nam", track.title), ("\xa9ART", track.artist), ("aART", album_artist),
+                           ("\xa9alb", track.album), ("\xa9gen", track.genre), ("\xa9day", track.release_date[:10])):
+            if value:
+                tags[key] = [value]
+            elif key in tags:
+                del tags[key]
+        for key, number in (("trkn", track.track_number), ("disk", track.disc_number)):
+            if number:
+                tags[key] = [(number, 0)]
+            elif key in tags:
+                del tags[key]
+        audio.save()
+    elif suffix == ".mp3":
+        from mutagen.id3 import ID3, TALB, TCON, TDRC, TIT2, TPE1, TPE2, TPOS, TRCK, ID3NoHeaderError
+
+        try:
+            tags = ID3(path)
+        except ID3NoHeaderError:
+            tags = ID3()
+        for frame, value in ((TIT2, track.title), (TPE1, track.artist), (TPE2, album_artist), (TALB, track.album),
+                             (TCON, track.genre), (TDRC, track.release_date[:10]),
+                             (TRCK, str(track.track_number or "")), (TPOS, str(track.disc_number or ""))):
+            tags.delall(frame.__name__)
+            if value:
+                tags.add(frame(encoding=3, text=value))
+        tags.save(path, v2_version=3)
+    else:
+        raise ValueError(f"Can't change details inside {suffix} files")
