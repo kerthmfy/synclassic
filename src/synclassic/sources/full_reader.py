@@ -252,4 +252,9 @@ def terminal_reader(ref: SpotifyRef, expected_total: int | None, name: str) -> S
     """For the `synclassic` command: same reader, shown as its own small window."""
     count = f"all {expected_total} songs" if expected_total else "every song"
     print(f"Reading {count} of “{name}” from Spotify's web page (a small window opens)…", flush=True)
-    return read_full_playlist(ref, expected_total, name)
+    try:
+        return read_full_playlist(ref, expected_total, name)
+    finally:
+        from synclassic.cli import sane_terminal
+
+        sane_terminal()  # the browser can leave Terminal's typing in a raw mode

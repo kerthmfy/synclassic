@@ -109,3 +109,22 @@ def test_report_a_problem_window(app, monkeypatch):
         dialog.reject()
     finally:
         window.close()
+
+
+def test_terminal_typing_is_put_back_to_normal_before_a_question(monkeypatch):
+    import pty
+    import termios
+
+    leader, follower = pty.openpty()
+    stream = os.fdopen(follower, "r")
+    attrs = termios.tcgetattr(follower)
+    attrs[0] &= ~termios.ICRNL  # what the browser left behind: Return shows as ^M
+    attrs[3] &= ~(termios.ICANON | termios.ECHO)
+    termios.tcsetattr(follower, termios.TCSANOW, attrs)
+    monkeypatch.setattr("sys.stdin", stream)
+    monkeypatch.setattr("builtins.input", lambda question: "y\r")
+    assert cli.ask("Sync now? [y/N] ") == "y"
+    fixed = termios.tcgetattr(follower)
+    assert fixed[0] & termios.ICRNL and fixed[3] & termios.ICANON and fixed[3] & termios.ECHO
+    stream.close()
+    os.close(leader)

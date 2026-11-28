@@ -2891,11 +2891,12 @@ class MainWindow(QMainWindow):
             if not plan.has_changes:
                 if quick:
                     self.status_label.setText(
-                        f"“{waiting[0].library.name}” is waiting on the iPod: see the activity (≡)" if waiting
+                        f"“{waiting[0].library.name}” is waiting on the iPod: use iPod → Sync to review it" if waiting
                         else "Your iPod is up to date")
                     return
-                QMessageBox.information(self, "iPod is up to date", "\n".join(lines[1:]))
-                return
+                if not waiting:
+                    QMessageBox.information(self, "iPod is up to date", "\n".join(lines[1:]))
+                    return
             if not plan.fits:
                 box = QMessageBox(QMessageBox.Icon.Warning, "Not enough space", "\n".join(lines[:14]), parent=self)
                 if len(lines) > 14:
@@ -2909,6 +2910,9 @@ class MainWindow(QMainWindow):
             if quick and plan.only_adds:
                 self._apply_sync(plan)
                 return
+            if isinstance(plan, ipod_sync.Plan):
+                self._review_sync(plan)
+                return
             box = QMessageBox(QMessageBox.Icon.Question, "Sync iPod", "\n".join(lines[:1] + lines[1:12]), parent=self)
             box.setInformativeText("The iPod's database is backed up first. Sync now?")
             if len(lines) > 12:
@@ -2921,6 +2925,26 @@ class MainWindow(QMainWindow):
         self._set_busy("Reading your iPod…")
         self.stop_action.setEnabled(False)
         run_in_background(self, prepare, show, self._job_failed)
+
+    def _review_sync(self, plan) -> None:
+        """The sync preview window: Sync, replace a waiting playlist anyway, or see songs not found."""
+        from synclassic.gui.sync_plan_dialog import SyncPlanDialog
+        from synclassic.ipod import prefs
+
+        dialog = SyncPlanDialog(plan, self)
+        accepted = dialog.exec()
+        if dialog.show_not_found:
+            self._pending_key = ATTENTION
+            self.refresh()
+            self.say("Double-click a song to listen to the choices and pick the right one, then sync again.")
+            return
+        if dialog.replace:
+            asked = prefs.load(plan.ipod).replace
+            prefs.update(plan.ipod, replace=sorted(set(asked) | set(dialog.replace)))
+            QTimer.singleShot(0, lambda: self.sync_ipod())  # the plan again, with those replaced
+            return
+        if accepted:
+            self._apply_sync(plan)
 
     def _apply_sync(self, plan) -> None:
         from synclassic.ipod import sync as ipod_sync

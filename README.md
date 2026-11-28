@@ -264,6 +264,10 @@ What a sync does:
   version is left exactly as it is, so a playlist never loses songs. Rename a playlist in
   Synclassic to match an existing iPod playlist if you want that one taken over.
 - Saves plays, skips and ratings from the iPod first.
+- Before anything changes, **Sync iPod** shows a preview: each playlist with what happens to it
+  (no changes, new, updated, replaces the iPod's own playlist, or waiting) and how many of its
+  songs aren't ready. A playlist that's waiting can be replaced right there (Replace anyway), and
+  **Show the Songs Not Found** takes you to the songs that need a match picked.
 - Removes songs **Synclassic added** once no playlist uses them. Music you put on the iPod
   some other way is never deleted, and your other playlists are left as they are.
 

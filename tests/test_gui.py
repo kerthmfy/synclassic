@@ -118,14 +118,21 @@ def test_sync_ipod_from_window(app, monkeypatch, tmp_path):
     monkeypatch.setenv("SYNCLASSIC_IPOD", str(root))
     library_with(tmp_path, {"Gym": [song(1), song(2)]}).close()
     shown = []
-    monkeypatch.setattr(QMessageBox, "exec", lambda self: shown.append(self.text()) or QMessageBox.StandardButton.Ok)
+    from synclassic.gui.sync_plan_dialog import SyncPlanDialog
+
+    def answer(dialog):
+        rows = [dialog.table.topLevelItem(i) for i in range(dialog.table.topLevelItemCount())]
+        shown.append([(r.text(0), r.text(1), r.text(2)) for r in rows])
+        return SyncPlanDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(SyncPlanDialog, "exec", answer)
     monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.No))
 
     window = MainWindow()
     window.sync_ipod()
-    assert wait_until(app, lambda: window.job is not None or len(shown) > 1, 20)
+    assert wait_until(app, lambda: window.job is not None or bool(shown), 20)
     assert wait_until(app, lambda: window.job is None, 30)
-    assert any("Copy 2 songs" in text for text in shown)
+    assert shown[0] == [("Gym", "● New on the iPod", "2")]
     db = itunesdb.parse((root / "iPod_Control" / "iTunes" / "iTunesDB").read_bytes())
     assert [p.name for p in itunesdb.playlists(db) if p.name == "Gym"] == ["Gym"]
     assert window.status_label.text() == "iPod synced."
@@ -850,5 +857,64 @@ def test_a_waiting_playlist_is_mentioned_after_an_automatic_sync(app, monkeypatc
         assert wait_until(app, lambda: bool(asked), 30)
         assert "“old mix” was left as it is" in asked[0] and "1 not found" in asked[0]
         assert "⏸ “old mix”" in window.log.toPlainText()
+    finally:
+        window.close()
+
+
+def test_sync_preview_window_replace_anyway_and_not_found(app, monkeypatch, tmp_path, ipod):
+    from synclassic import config
+    from synclassic.gui.main_window import ATTENTION, MainWindow
+    from synclassic.gui.sync_plan_dialog import SyncPlanDialog
+    from synclassic.ipod import prefs
+    from synclassic.ipod import sync as ipod_sync
+    from synclassic.library import Library
+    from synclassic.models import SourcePlaylist, Track
+    from synclassic.sources import SourceSpec
+    from synclassic.update import apply_source
+    from tests.conftest import make_audio
+    from tests.test_ipod_sync import song
+
+    monkeypatch.setenv("SYNCLASSIC_IPOD", str(ipod.root))
+    library = Library(config.app_dir() / "library.db")
+    playlist = library.add_playlist("old mix", SourceSpec("spotify", "https://open.spotify.com/playlist/" + "2" * 22))
+    apply_source(library, playlist, SourcePlaylist("old mix", [song(1), Track("Lost", ["Nobody"], spotify_id="l" * 22)]))
+    first, lost = library.playlist_tracks(playlist)
+    make_audio(tmp_path / "a.m4a", seconds=2)
+    library.update_track(first.id, status="downloaded", file_path=str(tmp_path / "a.m4a"))
+    library.update_track(lost.id, status="unmatched")
+    plan = ipod_sync.make_plan(library, ipod)
+
+    dialog = SyncPlanDialog(plan)
+    row = dialog.table.topLevelItem(0)
+    assert (row.text(0), row.text(1)) == ("old mix", "● Waiting: left as it is")
+    assert "1 not found" in row.text(3) and "would have only 1 song" in row.toolTip(1)
+    tick = next(iter(dialog.ticks.values()))
+    tick.setChecked(True)
+    assert dialog.replace == [ipod_sync.playlist_key(playlist)] and dialog.sync.text() == "Update the Plan"
+    dialog.reject()
+
+    window = MainWindow()
+    try:
+        resyncs = []
+        monkeypatch.setattr(window, "sync_ipod", lambda quick=False: resyncs.append(quick))
+
+        def tick_and_close(self):
+            next(iter(self.ticks.values())).setChecked(True)
+            return SyncPlanDialog.DialogCode.Accepted
+
+        monkeypatch.setattr(SyncPlanDialog, "exec", tick_and_close)
+        window._review_sync(plan)
+        assert prefs.load(ipod).replace == [ipod_sync.playlist_key(playlist)]
+        assert wait_until(app, lambda: resyncs == [False], 5)  # the plan again, now replacing it
+        replanned = ipod_sync.make_plan(window.library, ipod)
+        assert replanned.playlists[0].action == "take over" and not replanned.waiting
+
+        def show_songs(self):
+            self._fix_not_found()
+            return SyncPlanDialog.DialogCode.Rejected
+
+        monkeypatch.setattr(SyncPlanDialog, "exec", show_songs)
+        window._review_sync(replanned)
+        assert window.current_key == ATTENTION
     finally:
         window.close()

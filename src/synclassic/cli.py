@@ -105,7 +105,7 @@ def cmd_login(args) -> int:
         say(f"  2. Add this Redirect URI exactly: {spotify_auth.REDIRECT_URI}")
         say("  3. Tick 'Web API', save, then copy the app's Client ID.")
         say("  (Spotify requires the developer account to have Premium.)")
-        client_id = input("Client ID: ").strip()
+        client_id = ask("Client ID: ").strip()
     if not client_id:
         return 1
     try:
@@ -437,7 +437,7 @@ def cmd_clean(args) -> int:
         say(f"  {item.track.display()}")
     if len(orphans) > 30:
         say(f"  ...and {len(orphans) - 30} more")
-    if not args.yes and input("Delete these files? [y/N] ").strip().lower() != "y":
+    if not args.yes and ask("Delete these files? [y/N] ").strip().lower() != "y":
         return 0
     from synclassic.organize import remove_song_file
 
@@ -611,7 +611,7 @@ def cmd_ipod(args) -> int:
             say(f"Choose a number from 1 to {len(backups)}.")
             return 1
         folder = backups[args.backup - 1]
-        if not args.yes and input(f"Put the database from {folder.name} back on the iPod? [y/N] ").strip().lower() != "y":
+        if not args.yes and ask(f"Put the database from {folder.name} back on the iPod? [y/N] ").strip().lower() != "y":
             return 0
         ipod_sync.restore(ipod, folder)
         say(f"Restored the database from {folder.name}.")
@@ -661,7 +661,7 @@ def cmd_ipod(args) -> int:
             say(line)
         if args.dry_run or not plan.has_changes or not plan.fits:
             return 0 if plan.fits else 1
-        if not args.yes and input("Sync now? [y/N] ").strip().lower() != "y":
+        if not args.yes and ask("Sync now? [y/N] ").strip().lower() != "y":
             return 0
         rockbox.apply(library, plan, say)
         return 0
@@ -701,7 +701,7 @@ def cmd_ipod(args) -> int:
         if args.dry_run:
             say("(Dry run: nothing was changed.)")
         return 0 if plan.fits else 1
-    if not args.yes and input("Sync now? [y/N] ").strip().lower() != "y":
+    if not args.yes and ask("Sync now? [y/N] ").strip().lower() != "y":
         return 0
     try:
         saved = ipod_sync.apply_plan(library, plan, say)
@@ -877,8 +877,8 @@ def cmd_lastfm(args) -> int:
 
     if args.action == "login":
         default_key, default_secret = lastfm.app_key()
-        key = args.key or default_key or input("Last.fm API key: ").strip()
-        secret = args.secret or default_secret or input("Last.fm shared secret: ").strip()
+        key = args.key or default_key or ask("Last.fm API key: ").strip()
+        secret = args.secret or default_secret or ask("Last.fm shared secret: ").strip()
         if not key or not secret:
             say(f"Create an API account first: {lastfm.CREATE_ACCOUNT_PAGE}")
             return 1
@@ -1157,6 +1157,29 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("doctor", help="check that everything needed is installed")
     p.set_defaults(func=cmd_doctor)
     return parser
+
+
+def sane_terminal() -> None:
+    """Put Terminal's typing back to normal: Return ends the line, and you see what you type.
+    (The hidden browser that reads long Spotify playlists can leave it in a raw mode, where
+    Return shows as ^M and questions never get their answer.)"""
+    if not sys.stdin.isatty():
+        return
+    try:
+        import termios
+
+        attrs = termios.tcgetattr(sys.stdin.fileno())
+        attrs[0] |= termios.ICRNL  # Return → end of line
+        attrs[3] |= termios.ICANON | termios.ECHO  # whole lines, shown as typed
+        termios.tcsetattr(sys.stdin.fileno(), termios.TCSANOW, attrs)
+    except Exception:  # no termios, or termios.error: the question is still asked
+        pass
+
+
+def ask(question: str) -> str:
+    """A question in Terminal (with typing set back to normal first)."""
+    sane_terminal()
+    return input(question).replace("\r", "")
 
 
 def cmd_report(args) -> int:
