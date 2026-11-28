@@ -55,7 +55,8 @@ class EditSession:
             raise ManageError("The iPod check didn't pass, so nothing was changed: " + "; ".join(report.problems))
         if make_backup:
             backup(ipod)
-        self.db = itunesdb.parse(ipod.database_path.read_bytes())
+        self.original = ipod.database_path.read_bytes()
+        self.db = itunesdb.parse(self.original)
         self.state = load_state(ipod)
         self.itunes = ipod.control / "iTunes"
         self.counts_file: pathlib.Path | None = self.itunes / "Play Counts"
@@ -234,7 +235,9 @@ class EditSession:
         data = itunesdb.serialize(self.db)
         if itunesdb.serialize(itunesdb.parse(data)) != data:
             raise ManageError("The changed database didn't verify, so nothing was changed.")
-        _write_atomically(self.ipod.database_path, data)
+        from synclassic.ipod import signing
+
+        _write_atomically(self.ipod.database_path, signing.finish(self.ipod, data, self.original))
         for path in self.files_to_delete:
             path.unlink(missing_ok=True)
         if self.counts_file is not None and self.counts_file.is_file():

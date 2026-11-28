@@ -38,6 +38,7 @@ class CheckReport:
     artwork_images: int = 0
     artwork_sizes: list[tuple[int, int, int]] = field(default_factory=list)
     artwork_error: str = ""
+    signature: str = ""
     problems: list[str] = field(default_factory=list)
 
     @property
@@ -62,10 +63,14 @@ def check(ipod: IPod) -> CheckReport:
     report.round_trip_ok = itunesdb.serialize(db) == raw
     if not report.round_trip_ok:
         report.problems.append("Synclassic couldn't rebuild the database exactly, so it won't write to this iPod yet.")
-    # Later iPods (Classic 6G+, nano 3G+) need a signed database; the 5/5.5G doesn't.
-    report.hashed_database = db.u16(0x30) != 0 or any(db.header[0x58:0x6C])
-    if report.hashed_database:
-        report.problems.append("This iPod's database is signed (a newer iPod model); Synclassic only writes to 5G/5.5G iPods.")
+    # Later iPods (classic 6G+, nano 3G+) need a signed database; the 5/5.5G doesn't.
+    from synclassic.ipod import signing
+
+    report.signature = signing.describe(raw)
+    signing_problem = signing.problem(ipod, raw)
+    report.hashed_database = signing_problem is not None  # signed in a way Synclassic can't (yet) write
+    if signing_problem:
+        report.problems.append(signing_problem)
     report.sections = [mhsd.u32(0x0C) for mhsd in db.find(b"mhsd")]
 
     songs = itunesdb.songs(db)
@@ -186,7 +191,9 @@ def format_report(report: CheckReport) -> list[str]:
         f"  Storage:  {total / gb:.1f} GB, {free / gb:.1f} GB free",
     ]
     if ipod.is_supported_model is False:
-        lines.append("  ⚠ Synclassic is built for the 5th/5.5th generation iPod (Video).")
+        lines.append("  ⚠ Synclassic is built for the iPod 5G/5.5G (Video) and the iPod classic; this model is untested.")
+    if report.signature:
+        lines.append(f"  Database: {report.signature}")
     if report.database_size:
         kinds = [f"{report.songs} songs"]
         if report.videos:

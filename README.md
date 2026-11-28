@@ -189,7 +189,12 @@ Change the main folder with `synclassic config music_dir /path/to/folder`.
 
 ## Your iPod
 
-Synclassic manages the iPod 5th/5.5th generation (Video) with Apple's firmware.
+Synclassic manages the iPod 5th/5.5th generation (Video) and the **iPod classic** (6th, 6.5th
+and 7th generation) with Apple's firmware. The iPod classic only accepts a database signed with
+its own FireWire ID (a 16-digit hardware number); Synclassic finds it on the iPod or in your
+Mac's USB information, checks it against the iPod's current signature, and signs every change.
+If it can't find it, `synclassic ipod` says how to add it. (The iPod nano 3G/4G uses the same
+signature and should work too, but is untested; the nano 5G and later aren't supported.)
 
 **1. Check it** (read-only, nothing is changed):
 

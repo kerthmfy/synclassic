@@ -20,8 +20,17 @@ MODELS = {
     "A448": "iPod 5.5th generation (Video), 80 GB, white",
     "A450": "iPod 5.5th generation (Video), 80 GB, black",
     "A664": "iPod 5.5th generation (Video), U2 edition",
+    # iPod classic: their database is signed with each iPod's FireWire ID (see ipod/signing.py).
+    "B029": "iPod classic (6th generation), 80 GB, silver",
+    "B147": "iPod classic (6th generation), 80 GB, black",
+    "B145": "iPod classic (6th generation), 160 GB, silver",
+    "B150": "iPod classic (6th generation), 160 GB, black",
+    "B562": "iPod classic (6.5th generation), 120 GB, silver",
+    "B565": "iPod classic (6.5th generation), 120 GB, black",
+    "C293": "iPod classic (7th generation), 160 GB, silver",
+    "C297": "iPod classic (7th generation), 160 GB, black",
 }
-VIDEO_GENERATION = {code: ("5.5" if "5.5" in name else "5") for code, name in MODELS.items()}
+VIDEO_GENERATION = {code: ("5.5" if "5.5" in name else "5") for code, name in MODELS.items() if "Video" in name}
 
 
 @dataclass

@@ -679,7 +679,9 @@ def apply_plan(
         if (song.dbid in new_dbids.values() or song.dbid in episode_files) and not (ipod.root / song.relative_path).is_file():
             raise SyncError(f"A copied song is missing on the iPod ({song.relative_path}); nothing was changed.")
     say("Writing the iPod's database…")
-    _write_atomically(ipod.database_path, data)
+    from synclassic.ipod import signing
+
+    _write_atomically(ipod.database_path, signing.finish(ipod, data, raw))
 
     # 7. Clean up: old files, merged play counts, On-The-Go files; remember what we manage.
     for song in [*plan.remove_songs, *plan.podcasts.remove, *(s for _, s in plan.remove_videos)]:

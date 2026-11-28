@@ -12,3 +12,8 @@ round-trip byte-for-byte.
 `tests/fixtures/ArtworkDB/` (an empty database, one with deliberate unknown data, and one
 with a single image in four sizes). Synclassic uses them to check that unchanged artwork
 databases round-trip byte-for-byte.
+
+`hash58-vectors.json` comes from iOpenPod's `tests/fixtures/writing/hash58-original.json`
+(GPL-3.0-or-later): hash58 signatures captured from the original iOpenPod implementation,
+which used libgpod's literal lookup tables. Synclassic's port (which computes the tables)
+must reproduce them byte for byte.
