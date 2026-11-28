@@ -18,6 +18,9 @@ class SourceError(RuntimeError):
     pass
 
 
+LIKELY_CUT_OFF = 75  # public playlists this long (or longer) may have been cut at Spotify's 100-song limit
+
+
 # Reads a whole public playlist from Spotify's web page: (link, expected song count, name) -> playlist.
 # Provided by the app/terminal when the built-in browser is available (see sources/full_reader.py).
 FullReader = Callable[[SpotifyRef, "int | None", str], "SourcePlaylist | None"]
@@ -150,16 +153,30 @@ def _read_spotify(ref: SpotifyRef, client: SpotifyClient | None, full_reader: Fu
     if ref.kind != "playlist":
         return playlist
 
-    # The regular page tells us the real song count, and has album names for the first songs.
+    # The regular page used to tell the real song count (and albums for the first songs); Spotify
+    # often doesn't send it any more.
     page = spotify_page.fetch_page_info(ref)
     total = page.total if page and page.total else None
     missing = total is not None and total > len(playlist.tracks)
-    if missing or (total is None and playlist.truncated):
+    # Without the count: the embed stops at 100 songs, and leaves out songs that aren't available
+    # (in your country, or any more) from those 100, so a long playlist can come back as e.g. 96.
+    # Close to 100 means there may well be more: the full reader looks.
+    maybe_more = total is None and (playlist.truncated or len(playlist.tracks) >= LIKELY_CUT_OFF)
+    if missing or maybe_more:
         full = full_reader(ref, total, playlist.name) if full_reader else None
         if full and len(full.tracks) > len(playlist.tracks):
             full.name = playlist.name or full.name
             full.cover_url = full.cover_url or playlist.cover_url
             return full
+        if not missing and not playlist.truncated:  # only a guess that there are more
+            if full:  # it looked: the playlist really is this long
+                playlist.truncated, playlist.note = False, ""
+            elif not full_reader:
+                playlist.note = (f"Spotify didn't say how many songs this playlist has. If it has more than "
+                                 f"{len(playlist.tracks)}, turn on the full-playlist reader in Settings.")
+            if page:
+                _add_album_info(playlist, page.tracks)
+            return playlist
         playlist.truncated = True
         count = f"{len(playlist.tracks)} of {total}" if total else f"the first {len(playlist.tracks)}"
         if full_reader:

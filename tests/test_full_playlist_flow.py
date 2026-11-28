@@ -49,3 +49,29 @@ def test_without_full_reader_the_note_explains_how_to_get_everything(monkeypatch
     setup(monkeypatch, 100, 250)
     result = read_source(SourceSpec("spotify", LINK), None)
     assert "100 of 250" in result.note and "full-playlist reader" in result.note
+
+
+def test_96_songs_and_no_count_from_spotify_means_look_for_more(monkeypatch):
+    """Spotify's embed leaves unavailable songs out of the first 100 (e.g. 96), and its page no
+    longer says how many songs there are: the full reader looks."""
+    embed = SourcePlaylist("yeah", songs(96))  # not marked truncated: fewer than 100
+    monkeypatch.setattr(spotify_public, "read_public", lambda ref: embed)
+    monkeypatch.setattr(spotify_page, "fetch_page_info", lambda ref: None)
+    calls = []
+
+    def reader(ref, total, name):
+        calls.append(total)
+        return SourcePlaylist("yeah", songs(214))
+
+    result = read_source(SourceSpec("spotify", LINK), None, reader)
+    assert calls == [None] and len(result.tracks) == 214
+
+    # It looked and the playlist really has 96: no warning.
+    result = read_source(SourceSpec("spotify", LINK), None, lambda *a: SourcePlaylist("yeah", songs(96)))
+    assert len(result.tracks) == 96 and not result.truncated and result.note == ""
+    # No full reader: a gentle note, not a false "songs are missing".
+    result = read_source(SourceSpec("spotify", LINK), None)
+    assert not result.truncated and "didn't say how many songs" in result.note
+    # A short playlist is left alone.
+    monkeypatch.setattr(spotify_public, "read_public", lambda ref: SourcePlaylist("small", songs(30)))
+    assert read_source(SourceSpec("spotify", LINK), None, lambda *a: (_ for _ in ()).throw(AssertionError())).note == ""
